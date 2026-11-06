@@ -930,7 +930,7 @@ function updateBoss(dt, s, active){
         if(totalClears >= CHEST_CLEAR_REQ && !chest){
           // 보스 처치 : 쓰러진 자리에서 보물 상자가 솟아오른다! (첫 처치부터)
           chest = { x: Math.max(ARENAL*TILE+16, Math.min(boss.x+boss.w/2-18, 196*TILE-16)),
-                    w:36, h:30, rise:0, risen:false, opened:false, openT:0 };
+                    y: 11*TILE-30, w:36, h:30, rise:0, risen:false, opened:false, openT:0 };
           showToast('신전의 바닥이 흔들린다… 무언가 올라온다!', 2.4);
           shake=8; sfx('door');
         } else { state='clear'; clearTimer=1.4; sfx('clear'); }
@@ -1776,7 +1776,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.28]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.29]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1828,7 +1828,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.28 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.29 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
