@@ -1,0 +1,1522 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>잃어버린 사원 - 채찍의 탐험가 (Stage 1)</title>
+<style>
+  html,body{margin:0;padding:0;background:#0a0a0d;overflow:hidden;
+    font-family:'Segoe UI',Arial,sans-serif;color:#e8dcb8;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;user-select:none;}
+  #wrap{position:relative;}
+  canvas{display:block;border:3px solid #5a4a2a;box-shadow:0 0 40px rgba(0,0,0,.9);background:#000;cursor:crosshair;}
+  #hintline{margin-top:8px;font-size:13px;color:#8a7a55;letter-spacing:.5px;}
+  b{color:#d9b968;}
+  #foot{margin-top:6px;font-size:12px;color:#5c5238;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="960" height="540"></canvas>
+  <div id="hintline">
+    <b>←/→ or A/D</b> 이동 · <b>Space / ↑ / W</b> 점프 · <b>J / X / 마우스클릭</b> 채찍 · <b>Enter</b> 시작 · <b>R</b> 리셋
+  </div>
+  <div id="foot">CHANN만화풍 원작(페르시아의 왕자)을 오마주한 인디아나 존스풍 탐험 게임입니다.</div>
+</div>
+<script>
+"use strict";
+// ============================================================
+//  잃어버린 사원 — Stage 1  (PoP풍 횡스크롤 / 인디아나 존스 모티브)
+// ============================================================
+const cv = document.getElementById('game');
+const ctx = cv.getContext('2d');
+const W = 960, H = 540;
+
+const TILE = 32;
+const COLS = 200, ROWS = 18;
+
+// ---------- 상태 ----------
+let keys = {};
+let state = 'menu';       // menu | play | clear | gameover
+let camX = 0;
+let score = 0, gems = 0;
+let clearTimer = 0, overTimer = 0;
+let shake = 0;
+let startTime = 0;
+
+// ---------- 오디오 (WebAudio 비프) ----------
+let actx = null;
+function sfx(type){
+  try{
+    if(!actx){ const AC = window.AudioContext||window.webkitAudioContext; actx = new AC(); }
+    const t = actx.currentTime;
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.connect(g); g.connect(actx.destination);
+    let f = 0, dur = 0.12, vol = 0.16;
+    if(type==='whip')   { f=90; dur=0.10; vol=0.28; }
+    else if(type==='hit'){ f=200; dur=0.12; vol=0.20; }
+    else if(type==='jump'){ f=340; dur=0.09; vol=0.12; }
+    else if(type==='gem'){ f=740; dur=0.11; vol=0.16; }
+    else if(type==='block'){ f=160; dur=0.08; vol=0.18; }
+    else if(type==='boss'){ f=70; dur=0.5; vol=0.22; }
+    else if(type==='door'){ f=110; dur=0.7; vol=0.16; }
+    else if(type==='slam'){ f=55; dur=0.3; vol=0.26; }
+    else if(type==='clear'){ f=520; dur=0.6; vol=0.22; }
+    o.type = 'sawtooth';
+    o.frequency.value = f;
+    g.gain.value = vol;
+    g.gain.exponentialRampToValueAtTime(0.001, t+dur);
+    o.start(t); o.stop(t+dur);
+  }catch(e){}
+}
+
+// ---------- 레벨 데이터 ----------
+let level = [];           // 2D array [row][col]
+let enemies = [], platforms = [], blocks = [], gemsList = [], particles = [], blades = [];
+let boss = null;
+let gateOpen = false, bossActive = false, bossDead = false;
+// 보스 아레나 : 신전의 문 + 진입/잠금 컷신
+let doorOpen = false, doorLift = 0;      // 문이 열린 상태 / 문이 위로 올라간 양(px)
+let cutscene = 0, csT = 0;               // 0=없음, 1=문 여는 컷신, 2=문 잠그고 보스 개시
+const DOOR_H = 4*TILE;                    // 신전의 문 높이(4타일) - 위로 슬라이드
+const DOOR_OPEN_T = 1.5, DOOR_SLAM_T = 1.1;
+const ARENAL = 161;                       // 어레나 왼쪽 신전 문 컬럼 (확장 후)
+const ARENAR = 198;                       // 어레나 오른쪽 끝 컬럼
+// 채찍 강화 아이템 / 안내 토스트
+let whipItems = [];
+let toast = null, toastT = 0;
+function showToast(msg, dur){ toast = msg; toastT = dur||1.6; }
+let checkpoint = { x: 64, y: 460 };
+let cpAdv1 = false, cpAdv2 = false;
+
+function isSolidAt(c, r){
+  if(c<0||c>=COLS) return true;
+  if(r<0) return true;
+  if(r>=ROWS) return false;
+  const ch = level[r][c];
+  if(ch==='#') return true;
+  if(ch==='K') return true;               // 뼈 섬(어레나 바닥)
+  if(ch==='D' && !doorOpen) return true;  // 신전의 문 (열리면 통과)
+  if(ch==='G' && !gateOpen) return true;
+  if(ch==='A' && bossActive) return true; // 보스 아레나: 진입 후에만 폐쇄
+  return false;
+}
+function tileAt(c,r){ if(c<0||c>=COLS||r<0||r>=ROWS) return '.'; return level[r][c]; }
+
+// ---------- 사다리 ----------
+const CLIMB_SPEED = 2.6;                 // 사다리 위아래 이동 속도
+const STAND_H = 44, CROUCH_H = 28;       // 서기/앉기 높이 (앉으면 칼날을 밑으로 통과)
+function onLadder(b){
+  const c0=Math.floor(b.x/TILE), c1=Math.floor((b.x+b.w-1)/TILE);
+  const r0=Math.floor(b.y/TILE), r1=Math.floor((b.y+b.h-1)/TILE);
+  for(let r=r0;r<=r1;r++)for(let c=c0;c<=c1;c++){
+    if(r<0||r>=ROWS||c<0||c>=COLS) continue;
+    if(level[r][c]==='L') return true;
+  }
+  return false;
+}
+
+// ---------- 물리 ----------
+function bodyFree(x,y,w,h){
+  const r0=Math.floor(y/TILE), r1=Math.floor((y+h-1)/TILE);
+  const c0=Math.floor(x/TILE), c1=Math.floor((x+w-1)/TILE);
+  for(let r=r0;r<=r1;r++)for(let c=c0;c<=c1;c++){
+    if(r<0||r>=ROWS) continue;
+    if(isSolidAt(c,r)) return false;
+  }
+  return true;
+}
+function inSolid(b){ return !bodyFree(b.x,b.y,b.w,b.h); }
+
+// 고전 방식의 정확한 타일 충돌: X → Y(바닥/천장 모두) → 잔여 끼임 위로 빼냄
+// 바닥이 없다며 위험하게 공중정지 체류 -> 아래 바닥으로 즉시 이동(붕 떠서 못 내려오는 상태 차단)
+function findGroundY(x, yTop, w, h){
+  const c0=Math.floor((x+1)/TILE), c1=Math.floor((x+w-1)/TILE);
+  for(let r=Math.floor((yTop+h)/TILE); r<ROWS; r++){
+    for(let c=c0;c<=c1;c++) if(isSolidAt(c,r)) return r*TILE - h;
+  }
+  return null;
+}
+const AIR_TOO_LONG = 0.6; // 이 시간 이상 바닥 없이 떠 있으면 아래 바닥으로 강제 이동
+// 고전 방식의 정확한 타일 충돌: X → Y(바닥/천장 모두) → 잔여 끼임 위로 빼냄
+function moveBody(b, s){
+  b.hitWall = 0;
+  // ---- X : 이동 방향의 선두 열과 겹치면 벽면으로 밀어냄
+  if(b.vx !== 0){
+    b.x += b.vx * s;
+    const dir = b.vx>0 ? 1 : -1;
+    const c  = Math.floor((dir>0 ? (b.x+b.w) : b.x)/TILE);   // 선두 열 (반드시 /TILE)
+    const r0 = Math.floor(b.y/TILE), r1 = Math.floor((b.y+b.h-1)/TILE);
+    if(c>=0 && c<COLS){
+      for(let r=r0;r<=r1;r++){
+        if(r<0||r>=ROWS) continue;
+        if(isSolidAt(c,r)){
+          if(dir>0) b.x = c*TILE - b.w; else b.x = (c+1)*TILE;
+          b.vx = 0; b.hitWall = dir;
+          break;
+        }
+      }
+    }
+  }
+  // ---- Y : 이동 방향에 따라 바닥(하강/정지) / 천장(상승)을 검사해 밀어냄
+  b.y += b.vy * s;
+  if(b.vy > 0){
+    // 하강: 발 아래 첫 고체 위에 앉힘
+    const r = Math.floor((b.y+b.h)/TILE);
+    let landed = false;
+    if(r>=0 && r<ROWS){
+      const c0=Math.floor((b.x+1)/TILE), c1=Math.floor((b.x+b.w-1)/TILE);
+      for(let cc=c0;cc<=c1;cc++){
+        if(isSolidAt(cc,r)){ b.y = r*TILE - b.h; b.vy=0; landed=true; break; }
+      }
+    }
+    b.onGround = landed;
+  } else if(b.vy < 0){
+    // 상승: 머리 위 고체면 아래로 밀어내고 상승 중단
+    const r = Math.floor(b.y/TILE);
+    if(r>=0 && r<ROWS){
+      const c0=Math.floor((b.x+1)/TILE), c1=Math.floor((b.x+b.w-1)/TILE);
+      for(let cc=c0;cc<=c1;cc++){
+        if(isSolidAt(cc,r)){ b.y = (r+1)*TILE; b.vy=0; break; }
+      }
+    }
+    b.onGround = false;
+  } else {
+    // 정지: 바로 아래 타일이 있으면 지면으로 인정 (점프 가능하게)
+    const r = Math.floor((b.y+b.h+1)/TILE);
+    let grounded = false;
+    if(r>=0 && r<ROWS){
+      const c0=Math.floor((b.x+1)/TILE), c1=Math.floor((b.x+b.w-1)/TILE);
+      for(let cc=c0;cc<=c1;cc++){ if(isSolidAt(cc,r)){ grounded=true; break; } }
+    }
+    b.onGround = grounded;
+  }
+  // ---- 완화된 안전장치 : 그래도 타일에 끼였으면 위로 최대 64px 빼냄
+  if(inSolid(b)){
+    for(let dy=1; dy<=64; dy++){
+      if(bodyFree(b.x, b.y-dy, b.w, b.h)){ b.y -= dy; b.vy = 0; break; }
+    }
+  }
+}
+function overlap(a,b){ return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y; }
+
+// ---------- 플레이어 ----------
+const p = {
+  x:64, y:460, w:26, h:44, vx:0, vy:0, onGround:false, hitWall:0,
+  facing:1, speed:3.4, jumpV:11.6,
+  hp:5, maxHp:5, hurtInv:0, coyote:0, jumpBuf:0,
+  attack:0, attackT:0, whipCd:0, hitSet:new Set(),
+  onPlate:false, climbing:false, crouch:false, whipLv:1
+};
+
+function resetPlayer(){
+  p.x = checkpoint.x; p.y = checkpoint.y; p.vx=0; p.vy=0; p.hp=5;
+  p.hurtInv=1.2; p.attack=0; p.attackT=0; p.onGround=false;
+}
+function respawn(){
+  p.hp--;
+  if(p.hp<=0 && state==='play'){ p.hp=0; state='gameover'; overTimer=0; return; }
+  p.x = checkpoint.x; p.y = checkpoint.y; p.vx=0; p.vy=0; p.hurtInv=1.5;
+}
+
+function tryWhip(){
+  if(p.attack>0 || p.whipCd>0) return;
+  p.attack = 0.28; p.attackT = 0; p.hitSet = new Set();
+  sfx('whip');
+}
+function whipLen(){ return 62 + (p.whipLv-1)*11; }   // 채찍 아이템을 먹을수록 길어짐
+function whipHitbox(){
+  const d = p.facing;
+  const L = whipLen();
+  let bx;
+  if(d>0) bx = { x:p.x+p.w-6, y:p.y+4, w:L, h:26 };
+  else    bx = { x:p.x-L,     y:p.y+4, w:L, h:26 };
+  return bx;
+}
+
+// ---------- 파티클 ----------
+function burst(x,y,color,n){
+  for(let i=0;i<n;i++){
+    particles.push({ x, y, vx:(Math.random()*6-3), vy:(Math.random()*6-3), life:0.5+Math.random()*0.4,
+      color, s:2+Math.random()*3 });
+  }
+}
+
+// ---------- 레벨 생성 ----------
+function buildLevel(){
+  const g = Array.from({length:ROWS},()=>Array(COLS).fill('.'));
+  const set=(c,r,ch)=>{ if(c<0||c>=COLS||r<0||r>=ROWS)return; g[r][c]=ch; };
+  const fill=(c0,c1,r0,r1,ch)=>{ for(let c=c0;c<=c1;c++)for(let r=r0;r<=r1;r++)set(c,r,ch); };
+  const ground=(c0,c1,r0)=>{ fill(c0,c1,r0,ROWS-1,'#'); };
+
+  // 좌우 벽
+  fill(0,0,0,ROWS-1,'#');
+  fill(COLS-1,COLS-1,0,ROWS-1,'#');
+
+  // [1] 입구 저지대(넓은 평지) - 장애물1,2 + 적
+  ground(1,41,16);
+  set(7,15,'^');                 // 장애물 1 (저지대)
+  set(20,15,'^');                // 장애물 2 (저지대)
+
+  // [2] 높이 5칸 이상 벽(col42 고지대)은 사다리로 ↑↑ 타고 오름
+  for(let r=10;r<=15;r++) set(41,r,'L');   // 사다리 (꼭대기가 고지대 놓면 높이보다 살짝 위)
+  set(43,9,'g');                            // 사다리 꼭대기 부근 보석
+
+  // [3] 고지대(platform) - 이후 모든 구간이 이 위에서 진행
+  ground(42,110,11);             // 고지대 : 밟는 면 row11 (y352) - 어레나는 col111부터
+  set(44,10,'^');                // 장애물 3 (고지대 입구, 한 칸 위)
+
+  // [4] 회전 칼날 지대 - 진행을 막던 흰/회색 칼칼 게이트는 제거.
+  //     회전 칼날 개체는 아래 "스폰" 섹션에서 생성 (밑에서 피해 지나가는 방식)
+
+  // [5] 이동발판 횡단 구덩이1 (col58~71)
+  fill(58,71,11,17,'.');
+
+  // [6] 보석 탑 + 적 (다시 위로 한 단계, 디딤돌로 밟고 오를 수 있게)
+  fill(74,75,10,10,'#');         // 디딤돌 : 밟는 면 row10 (y320, 고지대에서 1타일 위)
+  fill(76,77,9,10,'#');          // 탑 (밟는 면 row9, y288)
+  set(77,8,'g');                 // 탑 위 보석
+
+  // [7] 이동발판 횡단 구덩이2 (col84~95)
+  fill(84,95,11,17,'.');
+
+  // [8] 복도 (구덩이2 이후)
+  set(98,9,'g'); set(102,9,'g');
+
+  // [10] 지하 유적 구간 (보스까지의 길을 길고 다양하게)
+  fill(111,124,11,17,'.');         // 구덩이3 (이동발판으로 횡단)
+  ground(125,160,11);              // 유적 바닥 (고지대와 동일 높이로 이어짐)
+  fill(127,128,10,10,'#');         // 디딤돌 (1타일 위)
+  set(128,9,'g');
+  fill(132,140,8,10,'#');          // 높은 평탄(3타일 위) - 점프로 올라탐
+  set(136,7,'g'); set(138,7,'g');
+  set(144,10,'^'); set(147,10,'^'); set(150,10,'^');   // 가시 지대 (점프로 넘기)
+  fill(153,155,6,10,'#');          // 5타일짜리 벽 → 사다리로 등반
+  for(let r=5;r<=10;r++) set(152,r,'L');
+  set(154,4,'g');                  // 벽 꼭대기 보석
+  set(157,9,'g'); set(159,9,'g');  // 신전 문 앞 복도
+
+  // [9] 보스 아레나 : 독립된 방 (용암 위 해골 섬 + 신전의 문)
+  //      섬 표면 row11(K=뼈), 아래 row12~17은 용암 구덩이, 천장과 신전의 문으로 밀폐
+  for(let c=ARENAL;c<=ARENAR;c++) set(c,11,'K');       // 뼈 섬 표면
+  fill(ARENAL,ARENAR,12,17,'.');                        // 아래는 용암 (배경 레이어로 그림)
+  fill(ARENAL,ARENAR,0,1,'#');                          // 어레나 천장(방을 닫음)
+  for(let r=7;r<=10;r++) set(ARENAL,r,'D');             // 신전의 문 (닫힘 → 컷신으로 열림)
+
+  // 수집품(황금 사과/동상) - 고지대/저지대 분산 (보스 어레나 내부는 제거)
+  set(13,14,'g'); set(49,9,'g'); set(61,9,'g');
+  set(104,9,'g');
+
+  // 채찍 강화 아이템('w') - 먹을수록 채찍 범위가 누적 증가
+  set(16,14,'w');                 // 저지대
+  set(43,9,'w');                  // 사다리 오른쪽 고지대
+  set(69,9,'w');                  // 구덩이1 위 (발판에서 점프)
+  set(74,8,'w');                  // 디딤돌 위
+  set(117,9,'w');                 // 구덩이3 위 (발판에서 점프)
+  set(128,8,'w');                 // 유적 디딤돌 위
+  set(139,6,'w');                 // 높은 평탄 위
+  set(154,3,'w');                 // 사다리 타워 꼭대기
+
+  level = g;
+
+  // --- 스폰 ---
+  enemies.length=0; platforms.length=0; blocks.length=0; gemsList.length=0; particles.length=0; blades.length=0;
+  boss=null; gateOpen=false; bossActive=false; bossDead=false;
+  doorOpen=false; doorLift=0; cutscene=0; csT=0;
+
+  checkpoint = { x:70, y:16*TILE-46 };
+  cpAdv1 = false; cpAdv2 = false;
+
+  // 적 스폰 - 유형별(걷는 가드/점퍼/차저/플라이어), 마지막 인자=밟는 SOLID 행
+  spawnGuard(12, 16, 'walk');    // 입구 (저지대)
+  spawnGuard(23, 16, 'jump');    // 저지대 점퍼
+  spawnGuard(46, 11, 'charge');  // 고지대 입구 차저
+  spawnGuard(52, 11, 'walk');    // 칼날 지대 가드
+  spawnGuard(75, 11, 'walk');    // 보석 탑 근처
+  spawnGuard(99, 11, 'jump');    // 구덩이2 뒤 복도 점퍼
+  spawnGuard(129, 11, 'walk');   // 유적 디딤돌 근처
+  spawnGuard(146, 11, 'jump');   // 가시 지대 점퍼
+  spawnGuard(159, 11, 'charge'); // 신전 문 앞 차저
+  spawnFlyer(117, 9);            // 구덩이3 위를 나는 박쥐
+  spawnFlyer(137, 5);            // 높은 평탄 위를 나는 박쥐
+
+  // 이동발판 (횡단 - 구덩이 위를 표면과 같은 높이로 왕복, 건너는 페리)
+  platforms.push( makePlatform(64.5*TILE, 10*TILE+32, 1) );   // 구덩이1(col58~71)
+  platforms.push( makePlatform(89.5*TILE, 10*TILE+32, 1) );   // 구덩이2(col84~95)
+  platforms.push( makePlatform(117.5*TILE, 10*TILE+32, 1) );  // 구덩이3(col111~124)
+
+  // 회전 칼날 ("↓로 앉아서 아래로 피하는" 장애물)
+  blades.length = 0;
+  for(let i=0;i<6;i++)                                        // 고지대 col50~55
+    blades.push({ x:(50+i)*TILE+16, y:11*TILE-52, r:18, rot:0, spd:(i%2? 6.5:-6.5) });
+  for(let i=0;i<5;i++)                                        // 높은 평탄 col134~138 (표면 row8)
+    blades.push({ x:(134+i)*TILE+16, y:8*TILE-52, r:18, rot:0, spd:(i%2? 6.5:-6.5) });
+
+  // 보스 스폰 (해골 섬 아레나 끝쪽)
+  boss = { x:185*TILE, y:11*TILE-64, w:34, h:64, vx:0, vy:0, onGround:false, f:(-1),
+    hp:28, maxHp:28, hitCd:0, state:'approach', timer:-1, atk:'slash1', hitFx:0,
+    jumpLand:false, deadT:0, phase:1, pa:0, si:0, sec:0.3, walk:0, hitWall:0 };
+}
+function makePlatform(x,y,axis){ // axis 1=수평, 0=수직 (넓고 느리게 → 탑승 난이도 완화)
+  return { x, y, w:140, h:16, axis, baseX:x, baseY:y, t:Math.random()*10, on:false };
+}
+function spawnGuard(col, groundRow, kind){
+  const gy = groundRow*TILE - 44;
+  enemies.push({ x:col*TILE+6, y:gy, w:22, h:42, vx:0.7, vy:0, onGround:false,
+    hp:1, f:1, speed:0.7, minX:col*TILE-70, maxX:col*TILE+70, hitCd:0, mx:(col*TILE+6),
+    kind:kind||'walk', hopT:0.8+Math.random()*0.8, st:'idle', t:0, range:150 });
+}
+function spawnFlyer(col, row){
+  // 나는 해골박쥐: 중력 없이 사인파로 떠다니며 접근
+  enemies.push({ x:col*TILE, y:row*TILE, w:24, h:20, vx:0, vy:0, onGround:false,
+    hp:1, f:1, speed:0, hitCd:0, mx:col*TILE,
+    kind:'fly', baseY:row*TILE, t:Math.random()*6, range:160 });
+}
+// ---------- 입력 ----------
+window.addEventListener('keydown', e=>{
+  keys[e.code] = true;
+  if(e.code==='Space'||e.code==='ArrowUp'||e.code==='KeyW') p.jumpBuf = 0.12;
+  if((e.code==='KeyJ'||e.code==='KeyX')) tryWhip();
+  if(e.repeat) return;
+  if(e.code==='Enter'){
+    if(state==='menu') startGame();
+    if(state==='clear'||state==='gameover') restart();
+  }
+  if(e.code==='KeyR'){ startGame(); state='play'; }
+  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+});
+window.addEventListener('keyup', e=>{ keys[e.code]=false; });
+cv.addEventListener('mousedown', ()=>{ tryWhip(); });
+cv.addEventListener('contextmenu', e=>e.preventDefault());
+
+// ---------- 게임 제어 ----------
+function startGame(){
+  buildLevel();
+  collectGemsFromGrid();
+  resetPlayer();
+  p.whipLv = 1;                 // 새 게임마다 채찍 레벨 초기화
+  deadInitDone = false;
+  score=0; gems=0; state='play'; startTime=performance.now();
+  camX = Math.max(0, Math.min(p.x-W/2, COLS*TILE-W));
+}
+function restart(){ startGame(); }
+
+// ---------- 업데이트 ----------
+function update(dt){
+  // 천천히 닳듯 건너뛰지 않도록
+  const s = Math.min(dt*60, 1.6);
+  if(toastT>0) toastT-=dt;
+  if(state==='play'){
+    if(cutscene>0){ p.vx=0; p.vy=0; }   // 컷신 중 캐릭터 동결
+    updatePlayer(dt, s);
+    updateEnemies(dt, s);
+    updateBlocks(dt, s);
+    updatePlatforms(dt);
+    updateBlades(dt);
+    updateCutscene(dt);
+    if(boss && !bossDead) updateBoss(dt, s, bossActive);
+    updateGems();
+    updateParticles(dt);
+    updateCam();
+  }else if(state==='clear'){
+    clearTimer -= dt; updateParticles(dt);
+    if(clearTimer<=0){ /* 프레임 지속 */ }
+  }else if(state==='gameover'){
+    overTimer += dt; updateParticles(dt);
+  }
+  if(shake>0) shake -= dt*30;
+}
+
+function updateCam(){
+  // 캐릭터가 화면 중앙(+앞쪽)을 향해 나아가되, 한 프레임당 최대 이동량을 제한해
+  // "화면이 한꺼번에 러시해서 붙는" 순간이동 느낌이 나지 않게 함
+  const tx = p.x + p.facing*30 - W/2;
+  let d = (tx - camX)*0.4;
+  const maxd = 24;                 // 프레임당 최대 24px (많이 움직여도 급하게 튀지 않음)
+  if(d > maxd) d = maxd;
+  else if(d < -maxd) d = -maxd;
+  camX += d;
+  camX = Math.max(0, Math.min(camX, COLS*TILE-W));
+}
+
+function updateCutscene(dt){
+  // 컷신 시작 감지
+  if(cutscene===0){
+    if(!doorOpen && !bossDead && center(p).x > 160*TILE){  // 문 앞 도달 → 문 열기
+      cutscene=1; csT=0; sfx('door'); return;
+    }
+    if(doorOpen && !bossActive && !bossDead && center(p).x > 162.5*TILE){ // 방 안 진입 → 문 잠그고 보스
+      cutscene=2; csT=0;
+    }
+    return;
+  }
+  csT += dt;
+  if(cutscene===1){
+    // 신전의 문이 위로 미끄러져 열림
+    doorLift = Math.min(DOOR_H, (csT/DOOR_OPEN_T)*DOOR_H);
+    if(csT >= DOOR_OPEN_T){ doorOpen=true; doorLift=DOOR_H; cutscene=0; }
+  } else if(cutscene===2){
+    // 문이 내려오며 잠기고 보스 시작
+    doorLift = Math.max(0, DOOR_H - (csT/DOOR_SLAM_T)*DOOR_H);
+    if(csT >= DOOR_SLAM_T){ doorOpen=false; doorLift=0; bossActive=true; cutscene=0; sfx('boss'); }
+  }
+}
+
+function updatePlayer(dt, s){
+  // 타이머
+  if(p.hurtInv>0) p.hurtInv-=dt;
+  if(p.whipCd>0) p.whipCd-=dt;
+  if(p.attack>0){ p.attackT+=dt; p.attack-=dt; }
+  else p.hitSet.clear();
+  if(p.jumpBuf>0) p.jumpBuf-=dt;
+  if(p.coyote>0) p.coyote-=dt;
+  const prevOn = p.onGround;
+  if(cutscene>0){ p.vx=0; p.vy=0; return; }   // 컷신 중엔 조작/중력 모두(door 중간 이동 막음)
+
+  // 이동
+  const dir = (keys['ArrowRight']||keys['KeyD']?1:0) - (keys['ArrowLeft']||keys['KeyA']?1:0);
+  p.vx = dir * p.speed;
+  if(dir!==0) p.facing = dir;
+
+  // 사다리 감지/상태 (= 높이 5칸 이상 벽은 ↑/↓로 직접 타고 오름)
+  const onLad = onLadder(p);
+  const up = keys['ArrowUp']||keys['KeyW'];
+  const down = keys['ArrowDown']||keys['KeyS'];
+  if((onLad && (up||down)) || (p.climbing && onLad)) p.climbing = true;
+  else p.climbing = false;
+
+  if(p.climbing){
+    // 사다리 타기: 중력 없이 위/아래, 가로는 자유(벽을 벗어나면 풀림)
+    p.vy = up ? -CLIMB_SPEED : (down ? CLIMB_SPEED : 0);
+    p.jumpBuf = 0;
+  } else {
+    if(!p.onGround){ p.vy += 0.55*s; if(p.vy>14) p.vy=14; }
+    else { p.vy = 0; p.coyote = 0.1; }
+    // 점프
+    const jumpKey = keys['Space']||up;
+    if(p.jumpBuf>0 && (p.onGround || p.coyote>0)){
+      p.vy = -p.jumpV; p.onGround=false; p.coyote=0; p.jumpBuf=0;
+      sfx('jump');
+    }
+    // 가변 점프 (키 떼면 상승 중단)
+    if(!jumpKey && p.vy < -4) p.vy = -4;
+  }
+
+  moveBody(p, s);
+  // 사다리를 벗어났거나(이동), 착지했으면 사다리 상태 해제
+  if(p.climbing && (!onLadder(p) || p.onGround)) p.climbing = false;
+
+  // 앉기(크라우치): 지상에서 ↓(S) 누르면 몸을 낮춰 회전 칼날을 밑에서 통과
+  const wantCrouch = p.onGround && down && !p.climbing;
+  if(wantCrouch && !p.crouch){ p.h = CROUCH_H; p.y += (STAND_H - CROUCH_H); p.crouch = true; }
+  else if(!wantCrouch && p.crouch){ p.h = STAND_H; p.y -= (STAND_H - CROUCH_H); p.crouch = false; }
+  if(p.crouch) p.vx = dir * p.speed * 0.55;   // 앉은 채 이동은 느리게
+
+  // 완화된 안전장치 : 같은 지점에 1초 이상 끼어 있으면 리스폰 (영구 끼임 방지)
+  p._stT = inSolid(p) ? (p._stT||0) + dt : 0;
+  if((p._stT||0) > 1.0){ p._stT = 0; respawn(); return; }
+
+  // 이동발판에 탑승 (발이 발판 상단 부근이면 지면 인정, 상승/하강 무관)
+  for(const pl of platforms){
+    const pb = p.y + p.h;
+    if((p.x+p.w > pl.x+2) && (p.x < pl.x+pl.w-2) && pb >= pl.y-6 && pb <= pl.y+pl.h+4){
+      p.onGround = true;
+    }
+  }
+  // 퍼즐 블록에 서기(블록 위에 올라타기도)
+  for(const b of blocks){ if(overlap(p,{x:b.x,y:b.y-1,w:b.w,h:b.h}) && p.vy>=0){ p.onGround=true; } }
+
+  // 가시/함정 피해
+  if(p.hurtInv<=0 && onHazard(p)){
+    damagePlayer(1, p.vx<0?1:-1);
+  }
+  // 추락
+  if(p.y > H+40){ respawn(); sfx('boss'); }
+
+  // 체크포인트 갱신 (첫 이동발판 횡단(구덩이1, col58~71)을 넘어가면 고지대에 저장)
+  if(!cpAdv1 && p.x > 72*TILE){ cpAdv1 = true; checkpoint = {x: 75*TILE, y: 11*TILE-46}; }
+  if(!cpAdv2 && p.x > 126*TILE){ cpAdv2 = true; checkpoint = {x: 129*TILE, y: 11*TILE-46}; }
+
+  // 채찍 적중 처리
+  if(p.attack>0){
+    const hb = whipHitbox();
+    for(const e of enemies){
+      if(overlap(hb, e) && !p.hitSet.has(e)){
+        p.hitSet.add(e);
+        e.hp--; sfx('hit');
+        e.vx = p.facing*4.5; e.vy = -4;
+        burst(e.x+e.w/2, e.y+e.h/2, '#ffe9a0', 10);
+        if(e.hp<=0){ burst(e.x+e.w/2, e.y+10, '#d44', 16); }
+      }
+    }
+    if(boss && !bossDead && boss.hitCd<=0 && overlap(hb, boss)){
+      p.hitSet.add('boss');
+      boss.hp--; boss.hitCd = 0.55; boss.hitFx = 0.15;
+      sfx('hit');
+      burst(boss.x+boss.w/2, boss.y+10, '#ffdf6b', 14);
+      shake = 6;
+      if(boss.hp<=0){ bossDead = true; bossDeadInit(); }
+    }
+  }
+}
+function onHazard(b){
+  const c0=Math.floor(b.x/TILE), c1=Math.floor((b.x+b.w-1)/TILE);
+  const r0=Math.floor(b.y/TILE), r1=Math.floor((b.y+b.h-1)/TILE);
+  for(let r=r0;r<=r1;r++)for(let c=c0;c<=c1;c++){
+    if(tileAt(c,r)==='^') return true;
+  }
+  return false;
+}
+function damagePlayer(n, kx){
+  p.hp -= n; p.hurtInv = 1.2;
+  p.vx = kx*5; p.vy = -4.5;
+  shake = 8; sfx('hit');
+  burst(p.x+p.w/2, p.y+10, '#e55', 10);
+  if(p.hp<=0){ p.hp=0; state='gameover'; overTimer=0; }
+}
+
+function updateEnemies(dt, s){
+  for(let i=enemies.length-1;i>=0;i--){
+    const e=enemies[i];
+    if(e.hitCd>0) e.hitCd-=dt;
+    // 맵 밖으로 추락한 적은 정리
+    if(e.y > ROWS*TILE+80){ enemies.splice(i,1); continue; }
+    const dist = Math.abs(playerCenter().x - center(e).x);
+    const sameH = Math.abs((p.y+p.h) - (e.y+e.h)) < 34;
+
+    if(e.kind==='fly'){
+      // 나는 해골박쥐: 중력 없이 플레이어 쪽으로 떠다니며 사인파로 출렁
+      e.t += dt;
+      e.f = playerCenter().x > center(e).x ? 1 : -1;
+      e.x += e.f * 1.1 * s;
+      e.y = e.baseY + Math.sin(e.t*2.4)*26;
+      if(e.x < e.mx-e.range){ e.x = e.mx-e.range; }
+      if(e.x > e.mx+e.range){ e.x = e.mx+e.range; }
+    } else {
+      // 지상 적: 중력
+      if(!e.onGround){ e.vy += 0.55*s; if(e.vy>13) e.vy=13; }
+      else { e.vy = 0; }
+
+      if(e.kind==='walk'){
+        // 걷는 가드: 평소 순찰, 플레이어를 발견하면 빠르게 추격
+        e.vx = e.f * (e.speed||0.7);
+        const chase = dist < 240 && sameH;
+        e.speed = chase ? 2.0 : 0.7;
+      }
+      else if(e.kind==='jump'){
+        // 점퍼: 주기적으로 플레이어 쪽으로 크게 점프해 덮침
+        e.hopT -= dt;
+        if(e.onGround){
+          e.vx = e.f*0.5;
+          if(e.hopT<=0){
+            e.f = playerCenter().x > center(e).x ? 1 : -1;
+            e.vy = -8.4; e.vx = e.f*2.4;
+            e.hopT = 1.1 + Math.random()*0.7;
+          }
+        } else { e.vx = e.f*2.0; }
+      }
+      else if(e.kind==='charge'){
+        // 차저: 대기 → 인식하면 예고(0.45초) → 돌진(0.55초) → 휴식
+        e.t += dt;
+        if(e.st==='idle'){
+          e.vx=0;
+          if(dist<200 && sameH){ e.st='tele'; e.t=0; e.f = playerCenter().x>center(e).x?1:-1; }
+        }
+        else if(e.st==='tele'){ e.vx=0; if(e.t>0.45){ e.st='dash'; e.t=0; } }
+        else if(e.st==='dash'){ e.vx=e.f*5.2; if(e.t>0.55){ e.st='rest'; e.t=0; } }
+        else if(e.st==='rest'){ e.vx=0; if(e.t>0.9){ e.st='idle'; e.t=0; } }
+      }
+      else { e.vx = e.f * (e.speed||0.7); }
+
+      moveBody(e, s);
+      // 벽이나 범위 밖이면 뒤집기
+      if(e.hitWall!==0){ e.f*=-1; if(e.kind==='charge'&&e.st==='dash'){ e.st='rest'; e.t=0; } }
+      // 이동 제한 (차저/점퍼는 조금 더 넓게)
+      const leash = e.kind==='charge'||e.kind==='jump' ? (e.range||150) : 80;
+      if(e.x < e.mx-leash){ e.f=1; e.x=e.mx-leash; }
+      if(e.x > e.mx+leash){ e.f=-1; e.x=e.mx+leash; }
+    }
+
+    // 플레이어 접촉 피해 (공통)
+    if(e.hitCd<=0 && p.hurtInv<=0 && overlap(p,e)){
+      e.hitCd = 1.0;
+      const kx = center(p).x < center(e).x ? -1 : 1;
+      damagePlayer(1, kx);
+    }
+    if(p.vy>5 && p.y+p.h < e.y+12 && overlap(p,e)){
+      // 밟기(스탬프) 킬
+      e.hp=0; p.vy=-8; sfx('jump');
+      burst(e.x+e.w/2,e.y+e.h/2,'#d44',14);
+    }
+    if(e.hp<=0){ enemies.splice(i,1); }
+  }
+}
+function center(o){ return { x:o.x+o.w/2, y:o.y+o.h/2 }; }
+function playerCenter(){ return center(p); }
+
+function updateBlocks(dt, s){
+  // 블록 중력
+  for(const b of blocks){
+    b.vy = 0;
+    b.onGround = false;
+    // 플레이어가 밀기
+    const dir = (keys['ArrowRight']||keys['KeyD']?1:0) - (keys['ArrowLeft']||keys['KeyA']?1:0);
+    if(p.attack>0){} 
+    // 수평 충돌로 밀기
+    if(overlap(p,b)){
+      if(p.x+p.w <= b.x+4 && dir>0){ b.vx = 1.6; sfxIfPush(b); }
+      else if(p.x >= b.x+b.w-4 && dir<0){ b.vx = -1.6; }
+      else { if(b.vx!==0) { b.vx=0; } }
+    } else { b.vx = 0; }
+    b.x += b.vx * s;
+    // 벽 체크
+    const c0=Math.floor(b.x/TILE), c1=Math.floor((b.x+b.w-1)/TILE);
+    const rTop=Math.floor(b.y/TILE), rBot=Math.floor((b.y+b.h-1)/TILE);
+    if(isSolidAt(c1,rBot)||isSolidAt(c1,rTop)) b.x = c1*TILE-b.w;  // 우측
+    if(isSolidAt(c0,rBot)||isSolidAt(c0,rTop)) b.x = (c0+1)*TILE;  // 좌측
+    // 중력/착지
+    b.y += 4*s;  // 가속 일부
+    const rr=Math.floor((b.y+b.h)/TILE);
+    const r0=Math.floor(b.y/TILE);
+    if(isSolidAt(Math.floor((b.x+2)/TILE), rr) || isSolidAt(Math.floor((b.x+b.w-2)/TILE), rr)){
+      b.y = rr*TILE - b.h; b.onGround=true; b.vy=0;
+    }
+    // 스위치 감지
+    b.onSwitch = tileAt(Math.floor(b.x/TILE), Math.floor((b.y+b.h-1)/TILE))==='S'
+               || tileAt(Math.floor((b.x+b.w-1)/TILE), Math.floor((b.y+b.h-1)/TILE))==='S';
+    if(b.onSwitch){ gateOpen = true; b.vx=0; }
+  }
+}
+function sfxIfPush(b){ /* 최소 간격 사운드 */ b._sd = (b._sd||0)-1; if(b._sd<=0){ sfx('block'); b._sd=12; } }
+
+function updateBlades(dt){
+  // 회전 칼날: 정해진 위치에서 회전, 플레이어가 사각형 영역으로 겹치면 피해
+  for(const bd of blades){
+    bd.rot += bd.spd*dt;
+    if(p.hurtInv>0) continue;
+    // 플레이어 사각형에서 칼날 중심까지의 최단 거리
+    const cx = Math.max(p.x, Math.min(p.x+p.w, bd.x));
+    const cy = Math.max(p.y, Math.min(p.y+p.h, bd.y));
+    const dx = bd.x-cx, dy = bd.y-cy;
+    if(dx*dx+dy*dy < bd.r*bd.r)
+      damagePlayer(1, (p.x+p.w/2)<bd.x ? 1 : -1);
+  }
+}
+function updatePlatforms(dt){
+  for(const pl of platforms){
+    pl.t += dt;    const prevX = pl.x;
+    const ampX = pl.axis===1 ? 140 : 0;
+    if(pl.axis===1) pl.x = pl.baseX + Math.sin(pl.t*0.85)*ampX;
+    else            pl.y = pl.baseY + Math.sin(pl.t*0.7)*130;
+    // 발이 발판 상단 부근(±6px 위 ~ 두께 안쪽)에 닿으면 올려 앉힘 (상승/하강 무관)
+    const pBottom = p.y + p.h;
+    const inX = (p.x + p.w > pl.x + 2) && (p.x < pl.x + pl.w - 2);
+    const onTop = pBottom >= pl.y - 6 && pBottom <= pl.y + pl.h + 4;
+    // 바닥(고체 타일) 위에 서 있을 때는 끌려들어가지 않도록, 공중/구덩이 위일 때만 탑승
+    const rGround = Math.floor((p.y+p.h+1)/TILE);
+    let onTile = false;
+    if(rGround>=0 && rGround<ROWS){
+      const c0=Math.floor((p.x+1)/TILE), c1=Math.floor((p.x+p.w-1)/TILE);
+      for(let cc=c0;cc<=c1;cc++) if(isSolidAt(cc,rGround)){ onTile=true; break; }
+    }
+    if(inX && onTop && !onTile){
+      p.y = pl.y - p.h; p.vy = 0; p.onGround=true;
+      // 수반 이동 : 발판이 이번 프레임 실제로 이동한 변위만큼만 같이 데려감 (비약 방지)
+      if(pl.axis===1) p.x += (pl.x - prevX);
+    }
+  }
+}
+
+function updateGems(){
+  for(let i=gemsList.length-1;i>=0;i--){
+    const g=gemsList[i];
+    if(overlap(p,g)){ score+=50; gems++; sfx('gem'); burst(g.x+8,g.y+8,'#ffe36b',10); gemsList.splice(i,1); }
+  }
+  // 채찍 강화 아이템: 먹을수록 채찍 범위가 누적되어 길어짐
+  for(let i=whipItems.length-1;i>=0;i--){
+    const w=whipItems[i];
+    if(overlap(p,w)){
+      p.whipLv = Math.min(8, p.whipLv+1);
+      score+=100; sfx('gem'); burst(w.x+10,w.y+10,'#c9a15a',12);
+      showToast('채찍이 길어졌다! Lv.'+p.whipLv, 1.6);
+      whipItems.splice(i,1);
+    }
+  }
+}
+function updateParticles(dt){
+  for(let i=particles.length-1;i>=0;i--){
+    const pt=particles[i];
+    pt.life-=dt; pt.x+=pt.vx; pt.y+=pt.vy; pt.vy+=0.25; pt.vx*=0.98; pt.vy*=0.98;
+    if(pt.life<=0) particles.splice(i,1);
+  }
+}
+
+// ---------- 보스 ----------
+function updateBoss(dt, s, active){
+  const b = boss;
+  if(!active && !bossDead){
+    // 아레나 진입 전: 가만히 땅에 서 있게 중력만 적용
+    //  (보스 개시는 신전의 문을 닫는 컷신(updateCutscene)이 담당)
+    if(!b.onGround) b.vy += 0.55*s;
+    moveBody(b, s);
+    return;
+  }
+  if(bossDead){
+    if(b.deadT>0){ b.deadT-=dt; b.vx=0; b.hitFx=0.1; if(b.deadT<=0){ state='clear'; clearTimer=1.4; sfx('clear'); } }
+    return;
+  }
+  if(b.hitCd>0) b.hitCd-=dt;
+  if(b.hitFx>0) b.hitFx-=dt;
+  b.f = center(b).x > center(p).x ? -1 : 1;
+
+  const pc = center(p), bc = {x:b.x+b.w/2, y:b.y+b.h/2};
+  const distX = Math.abs(pc.x-bc.x);
+
+  // 중력 (항상)
+  if(!b.onGround) b.vy += 0.55*s;
+
+  // 칼로 상대를 베는 판정 (검이 휘두르는 범위)
+  const slashHit = ()=>{
+    const hb = { x: b.f>0? b.x+b.w-6 : b.x-76, y:b.y+6, w:82, h:54 };
+    if(p.hurtInv<=0 && overlap(p,hb)) damagePlayer(1, b.f);
+  };
+
+  if(b.state==='approach'){
+    // 거리 유지: 너무 붙으면 살짝 물러서고, 멀면 천천히 접근
+    if(distX < 56){ b.vx = (pc.x>bc.x? -1:1)*0.8; }
+    else          { b.vx = (pc.x>bc.x? 1:-1)*1.2; }
+    b.pa = Math.max(0, (b.pa||0) - dt*3);
+    if(b.onGround && b.timer<=0){
+      b.timer=-1;
+      if(distX < 110){                       // 근접: 검 콤보 또는 회전베기
+        b.atk = Math.random()<0.65 ? 'combo' : 'spin';
+        b.sec = 0.3;
+      }
+      else if(distX < 305){ b.atk = Math.random()<0.55 ? 'jump' : 'charge'; } // 중거리
+      else { b.atk = 'charge'; }             // 원거리: 반드시 돌진
+      b.state='telegraph'; b.timer=(b.atk==='jump')?0.5:(b.atk==='charge'?0.48:0.34); b.si=0;
+    }
+    if(b.timer>0) b.timer-=dt;
+  }
+  else if(b.state==='telegraph'){
+    b.vx=0; b.pa=0.1;   // 검 들어올려 예고
+    b.timer-=dt;
+    if(b.timer<=0){
+      b.state='attack'; b.pa=0;
+      if(b.atk==='jump'){
+        if(b.onGround){ b.vy=-11.2; b.vx=(pc.x>bc.x?1:-1)*3.0; }
+        else { b.state='recover'; b.timer=0.4; }
+      }
+      else if(b.atk==='charge'){ b.vx=(pc.x>bc.x?1:-1)*5.2; }   // 돌진 속도 완화
+      else { b.vx=(pc.x>bc.x?1:-1)*1.0; }   // combo/spin: 살짝 전진하며 베기
+    }
+  }
+  else if(b.state==='attack'){
+    const dur = (b.atk==='combo'||b.atk==='slash1'||b.atk==='slash2') ? (b.sec||0.3)
+              : (b.atk==='spin' ? 0.55 : b.atk==='charge' ? 0.75 : 0.4);
+    b.pa += dt/dur;
+    if(b.atk==='combo'){
+      // 2연속 베기 (s1 → s2)
+      if(((b.si===0&&b.pa>0.15&&b.pa<0.75)||(b.si===1&&b.pa>0.15&&b.pa<0.75))) slashHit();
+      if(b.pa>=1){ if(b.si===0){ b.si=1; b.pa=0; } else { b.state='recover'; b.timer=0.5; } }
+    }
+    else if(b.atk==='spin'){
+      // 회전하며 전진 - 연속 회전베기
+      b.vx=(pc.x>bc.x?1:-1)*3.2; slashHit();
+      if(b.pa>=1){ b.state='recover'; b.timer=0.5; }
+    }
+    else if(b.atk==='charge'){
+      // 강한 돌진 (첫 타에 강공격) - 피할 수 있는 속도로 완화
+      b.vx=(pc.x>bc.x?1:-1)*5.2;
+      if(b.pa>0.05 && b.pa<0.5) slashHit();
+      if(b.pa>=1){ b.state='recover'; b.timer=0.45; }
+    }
+    else if(b.atk==='jump'){
+      // 공중: 아래로 찍기 (착지 시 광역)
+      if(b.onGround){
+        if(p.hurtInv<=0 && Math.abs(pc.x-(b.x+b.w/2))<80) damagePlayer(1, b.f);
+        burst(b.x+b.w/2, b.y+b.h, '#ffaa55', 16);
+        shake=7; sfx('hit');
+        b.vx=0; b.state='recover'; b.timer=0.6;
+      }
+      b.pa=0;
+    }
+    else{ // 단일 슬래시
+      if(b.pa>0.15 && b.pa<0.75) slashHit();
+      if(b.pa>=1){ b.state='recover'; b.timer=0.45; }
+    }
+  }
+  else if(b.state==='recover'){
+    b.timer-=dt;
+    b.pa = Math.max(0,(b.pa||0)-dt*4);   // 칼 내려놓음
+    if(b.timer<=0){ b.state='approach'; b.timer = 0.55; }
+  }
+
+  moveBody(b, s);
+  // 아레나 안에만 머물게 (신전 문 col161 ~ 우측벽)
+  b.x = Math.max(ARENAL*TILE, Math.min(b.x, 196*TILE - b.w));
+}
+let deadInitDone=false;
+function bossDeadInit(){
+  if(deadInitDone) return; deadInitDone=true;
+  boss.deadT = 1.6; boss.hp=0; boss.vx=0;
+  for(let i=0;i<40;i++)
+    burst(boss.x+boss.w/2, boss.y+boss.h/2, i%2? '#fff':'#d99', 1);
+  shake=12; sfx('boss');
+}
+// 갱신 시 bossDead 리셋을 위해 startGame에서 처리를 위해 아래에서 deadInitDone 재설정
+function resetBossFlags(){ deadInitDone=false; }
+
+// ---------- 파서: 수집품 그리드->리스트 ----------
+function collectGemsFromGrid(){
+  gemsList.length = 0; whipItems.length = 0;
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    if(level[r][c]==='g'){
+      gemsList.push({ x:c*TILE+6, y:r*TILE+4, w:20, h:24, t:0 });
+    }
+    else if(level[r][c]==='w'){
+      // 채찍 강화 아이템 (먹으면 채찍 범위가 누적 증가)
+      whipItems.push({ x:c*TILE+6, y:r*TILE+4, w:20, h:24, t:0 });
+    }
+  }
+}
+
+// ============================================================
+//  렌더링
+// ============================================================
+function render(){
+  ctx.clearRect(0,0,W,H);
+  const sx = shake>0 ? (Math.random()*2-1)*Math.min(shake,6) : 0;
+  const sy = shake>0 ? (Math.random()*2-1)*Math.min(shake,6) : 0;
+  ctx.save();
+  ctx.translate(sx,sy);
+
+  drawBackground();
+  drawTiles();
+
+  // 수집품
+  for(const g of gemsList){ g.t+=0.12; drawGem(g); }
+  for(const w of whipItems){ w.t+=0.12; drawWhipItem(w); }
+
+  // 이동발판
+  for(const pl of platforms) drawPlatform(pl);
+
+  // 블록
+  for(const b of blocks) drawBlock(b);
+
+  // 적
+  for(const e of enemies) drawEnemy(e);
+
+  // 회전 칼날
+  for(const bd of blades) drawBlade(bd);
+
+  // 보스
+  if(boss && (bossActive||bossDead)) drawBoss();
+
+  // 플레이어
+  if(state!=='clear'||clearTimer>0) drawPlayer();
+
+  // 파티클
+  for(const pt of particles){
+    ctx.globalAlpha = Math.max(0,pt.life/0.9);
+    ctx.fillStyle = pt.color; ctx.fillRect(pt.x - camX, pt.y, pt.s, pt.s);
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.restore();
+
+  // HUD
+  drawHUD();
+
+  // 오버레이
+  if(state==='menu') drawMenu();
+  else if(state==='clear') drawClear();
+  else if(state==='gameover') drawGameOver();
+  if(state==='play' && bossActive && !bossDead) drawBossBar();
+  if(state==='play' && !bossActive && center(p).x > 158*TILE){
+    drawMessage('보스가 다가오고 있다', 200);
+  }
+}
+
+function drawBackground(){
+  // 어두운 석벽 배경
+  const grad = ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#17110c');
+  grad.addColorStop(0.6,'#221811');
+  grad.addColorStop(1,'#0e0a07');
+  ctx.fillStyle=grad; ctx.fillRect(0,0,W,H);
+  // 석벽 패턴
+  ctx.globalAlpha=0.18;
+  for(let x=-64;x<W+64;x+=64){
+    const ox = ((x%256)+256)%256;
+    ctx.fillStyle = (Math.floor((x/64)+ (Math.random()*0.4-0.2)))%2 ? '#2a1f14':'#20160d';
+    ctx.fillRect(x+((camX*0.2)%64), 0, 63, H);
+  }
+  ctx.globalAlpha=1;
+  // 토치 불빛
+  for(let i=0;i<6;i++){
+    const tx = i*180 + ((camX*0.1)%360);
+    const flick = Math.random()*4;
+    const fg = ctx.createRadialGradient(tx, 200+flick*0, 4, tx, 200, 90);
+    fg.addColorStop(0,'rgba(255,180,60,0.16)');
+    fg.addColorStop(1,'rgba(255,180,60,0)');
+    ctx.fillStyle=fg; ctx.fillRect(tx-90, 110, 180, 180);
+  }
+}
+
+function drawTiles(){
+  const c0 = Math.max(0, Math.floor(camX/TILE)-1);
+  const c1 = Math.min(COLS-1, Math.floor((camX+W)/TILE)+1);
+  for(let r=0;r<ROWS;r++){
+    for(let c=c0;c<=c1;c++){
+      const ch = level[r][c];
+      const x = c*TILE-camX, y = r*TILE;
+      if(ch==='#'){
+        // 돌 블록
+        ctx.fillStyle = (r+ (c>>1))%2 ? '#4d4029' : '#574933';
+        ctx.fillRect(x,y,TILE,TILE);
+        ctx.strokeStyle='rgba(0,0,0,0.45)';
+        ctx.lineWidth=1;
+        ctx.strokeRect(x+0.5,y+0.5,TILE-1,TILE-1);
+        // 질감
+        ctx.fillStyle='rgba(0,0,0,0.15)';
+        ctx.fillRect(x+6,y+10,10,3);
+        ctx.fillRect(x+16,y+22,8,3);
+      } else if(ch==='K'){
+        // 용암 위 해골 섬(뼈 타일)
+        ctx.fillStyle = ((r^c)&1) ? '#cdc6b6' : '#d8d2c3';
+        ctx.fillRect(x,y,TILE,TILE);
+        ctx.strokeStyle='rgba(70,60,40,0.55)'; ctx.lineWidth=1;
+        ctx.strokeRect(x+0.5,y+0.5,TILE-1,TILE-1);
+        // 이빨/해골 장식
+        ctx.fillStyle='#3a2e18';
+        ctx.beginPath(); ctx.arc(x+10,y+12,3,0,Math.PI*2); ctx.arc(x+22,y+12,3,0,Math.PI*2); ctx.fill();
+        ctx.fillRect(x+8,y+20,2,6); ctx.fillRect(x+13,y+20,2,6); ctx.fillRect(x+18,y+20,2,6); ctx.fillRect(x+23,y+20,2,6);
+      } else if(ch==='D'){
+        // 신전의 문 (doorLift만큼 위로 슬라이드하여 열림)
+        if(!doorOpen || doorLift>0){
+          const dy = y - doorLift;
+          ctx.fillStyle='#6e6446'; ctx.fillRect(x+2, dy, TILE-4, DOOR_H+4); // 문짝
+          ctx.fillStyle='#8d8058'; ctx.fillRect(x+2, dy, TILE-4, 5);        // 윗장식
+          ctx.fillStyle='#2f2817'; ctx.fillRect(x+2, dy+DOOR_H-6, TILE-4, 6); // 아랫단
+          ctx.fillStyle='#120c06';
+          ctx.beginPath(); ctx.arc(x+TILE/2, dy+DOOR_H/2-12, 8, 0, Math.PI*2); ctx.fill(); // 눈 장식
+          ctx.fillStyle='#d8cf9a'; ctx.beginPath(); ctx.arc(x+TILE/2, dy+DOOR_H/2-12, 3, 0, Math.PI*2); ctx.fill();
+        }
+      } else if(ch==='.'){
+        // 용암 구덩이 (어레나 영역 colARENAL~ARENAR, row12~17만)
+        if(c>=ARENAL && c<=ARENAR && r>=12 && r<=17) drawLavaTile(x,y);
+      } else if(ch==='^'){
+        drawSpike(x,y);
+      } else if(ch==='L'){
+        // 사다리(덩굴): 높이 5칸 이상 벽을 타고 오르는 지지대
+        ctx.fillStyle='rgba(70,50,25,0.45)';
+        ctx.fillRect(x+14, y+1, 4, TILE-2);        // 중앙 세로대
+        ctx.fillStyle='rgba(110,85,40,0.85)';
+        for(let yy=4; yy<TILE; yy+=9) ctx.fillRect(x+6, y+yy, TILE-12, 3);   // 가로대
+        ctx.fillStyle='rgba(160,140,60,0.5)';      // 덩굴 강조
+        ctx.fillRect(x+17, y+6, 3, 4); ctx.fillRect(x+17, y+18, 3, 4);
+      } else if(ch==='S'){
+        // 스위치 플레이트
+        const active = gateOpen;
+        ctx.beginPath(); ctx.arc(x+TILE/2, y+TILE*0.9, 10, 0, Math.PI*2);
+        ctx.fillStyle = active ? '#7fdf7f' : '#5a4a20';
+        ctx.fill();
+        ctx.strokeStyle = active ? '#dfff' : '#7a6a30';
+        ctx.lineWidth=2; ctx.stroke();
+      } else if(ch==='G' || ch==='A'){
+        // 게이트(철창)
+        const closed = ch==='G' ? (gateOpen?0:1) : (bossActive?1:0);
+        ctx.fillStyle = closed? 'rgba(120,120,120,0.55)' : 'rgba(120,120,120,0.15)';
+        ctx.fillRect(x+2,y,TILE-4,TILE);
+        ctx.fillStyle='rgba(0,0,0,0.4)';
+        for(let yy=0; yy<TILE; yy+=10) ctx.fillRect(x,y+yy,TILE,2);
+        ctx.fillStyle='#ddd'; ctx.fillRect(x+2,y,TILE-4,2);
+        ctx.fillRect(x+2,y+TILE-3,TILE-4,3);
+      }
+    }
+  }
+}
+function drawLavaTile(x,y){
+  // 굽이치는 용암 배경 (보스 어레나 아래)
+  const t = performance.now()*0.001;
+  ctx.fillStyle = ((((x>>5)+(Math.floor(t*2)&1))&1) ? '#7a2008' : '#8a2a0a');
+  ctx.fillRect(x,y,TILE,TILE);
+  ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect(x,y,TILE,2);       // 위쪽 살짝 어둡게
+  ctx.fillStyle='rgba(255,130,25,0.4)';
+  const bx = x+10 + ((Math.sin(x*0.13 + t*2.5 + y)*6)|0);
+  const by = y+14 + ((Math.cos(x*0.09 + t*1.8 + y)*5)|0);
+  ctx.beginPath(); ctx.arc(bx, by, 3, 0, Math.PI*2); ctx.fill();   // 버블
+}
+function drawSpike(x,y){
+  ctx.fillStyle='#9a8a66';  ctx.beginPath();
+  ctx.moveTo(x+2, y+TILE);
+  ctx.lineTo(x+TILE/2, y+8);
+  ctx.lineTo(x+TILE-2, y+TILE);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#c8b88f';
+  ctx.beginPath();
+  ctx.moveTo(x+2, y+TILE);
+  ctx.lineTo(x+TILE/2, y+8);
+  ctx.lineTo(x+TILE*0.3, y+TILE);
+  ctx.closePath(); ctx.fill();
+}
+function drawGem(g){
+  ctx.save(); ctx.translate(g.x - camX + 10, g.y + 12); 
+  const bob = Math.sin(g.t*2)*2;
+  ctx.translate(0,bob);
+  ctx.rotate(Math.sin(g.t)*0.2);
+  ctx.fillStyle='#ffd75a';
+  ctx.beginPath();
+  ctx.moveTo(0,-9); ctx.lineTo(8,0); ctx.lineTo(4,9); ctx.lineTo(-4,9); ctx.lineTo(-8,0);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='rgba(90,50,0,0.6)'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.restore();
+}
+function drawWhipItem(w){
+  // 감아놓은 채찍 아이템 (먹으면 채찍 범위 증가)
+  ctx.save(); ctx.translate(w.x - camX + 10, w.y + 12 + Math.sin(w.t*2)*2);
+  ctx.rotate(Math.sin(w.t)*0.15);
+  ctx.strokeStyle='#7a5a24'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.arc(0,0,7,0.4,Math.PI*2.1); ctx.stroke();
+  ctx.strokeStyle='#9a7a34'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(0,0,4,1.2,Math.PI*2.2); ctx.stroke();
+  ctx.fillStyle='#4a3218'; ctx.fillRect(4,-9,3,7);
+  ctx.fillStyle='#d9b23a'; ctx.fillRect(3,-10,5,2);
+  ctx.restore();
+}
+function drawBlade(bd){
+  const x = bd.x - camX;
+  ctx.save();
+  ctx.translate(x, bd.y);
+  ctx.rotate(bd.rot);
+  // 원형 몸체(은색) + 테두리
+  ctx.fillStyle='#cfd8dc'; ctx.beginPath(); ctx.arc(0,0,bd.r,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#60707a'; ctx.lineWidth=2; ctx.stroke();
+  // 회전 톱니 3개
+  ctx.fillStyle='#b0bec5';
+  for(let i=0;i<3;i++){
+    ctx.rotate(Math.PI*2/3);
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(bd.r,-7); ctx.lineTo(bd.r,7); ctx.closePath(); ctx.fill();
+  }
+  // 중심축
+  ctx.fillStyle='#263238'; ctx.beginPath(); ctx.arc(0,0,6,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+function drawPlatform(pl){
+  ctx.fillStyle='#3a3326';  ctx.fillRect(pl.x-camX, pl.y, pl.w, pl.h);
+  ctx.fillStyle='#5a4a26';
+  ctx.fillRect(pl.x-camX, pl.y, pl.w, 5);
+  ctx.fillStyle='rgba(0,0,0,0.4)';
+  ctx.fillRect(pl.x-camX, pl.y+pl.h-2, pl.w, 2);
+}
+function drawBlock(b){
+  ctx.fillStyle='#6b5a3a';
+  ctx.fillRect(b.x-camX, b.y, b.w, b.h);
+  ctx.strokeStyle='rgba(0,0,0,0.5)'; ctx.lineWidth=2;
+  ctx.strokeRect(b.x-camX, b.y, b.w, b.h);
+  ctx.fillStyle='#8a7350';
+  ctx.fillRect(b.x-camX+3, b.y+3, b.w-6, b.h-6);
+  ctx.strokeStyle='rgba(0,0,0,0.35)';
+  ctx.strokeRect(b.x-camX+3,b.y+3,b.w-6,b.h-6);
+}
+
+function drawEnemy(e){
+  const x = e.x-camX;
+  ctx.save(); ctx.translate(x, 0);
+  if(e.f<0) ctx.scale(-1,1);
+  if(e.kind==='fly'){
+    drawFlyer(e);
+  } else if(e.kind==='jump'){
+    // 창을 든 초록 부족 전사(점퍼)
+    drawGuardBody(14, e.y, 1, false, { armor:'#3f6b2a', trim:'#5a8a3a', helm:'#1c2a14', spear:true });
+  } else if(e.kind==='charge'){
+    // 뿔달린 청동 기사(차저) - 예고할 때 몸이 밝게 빛남
+    drawGuardBody(14, e.y, 1, false, { armor:'#3a4a6b', trim:'#52638a', helm:'#141a26', horns:true, flash:(e.st==='tele') });
+  } else {
+    // 기본 붉은 가드(워커)
+    drawGuardBody(14, e.y, 1, false);
+  }
+  ctx.restore();
+  // 피해 플래시
+  if(e.hp<=0) return;
+}
+function drawFlyer(e){
+  // 나는 해골박쥐
+  const flap = Math.sin((e.t||0)*10)*8;
+  ctx.fillStyle='#3a2a1a';
+  ctx.beginPath(); ctx.moveTo(6,e.y+8); ctx.lineTo(-8, e.y+2+flap); ctx.lineTo(-2, e.y+14); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(18,e.y+8); ctx.lineTo(32, e.y+2+flap); ctx.lineTo(26, e.y+14); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#e8e2d0';
+  ctx.beginPath(); ctx.arc(12,e.y+10,7,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#201812';
+  ctx.beginPath(); ctx.arc(9,e.y+9,2,0,Math.PI*2); ctx.arc(15,e.y+9,2,0,Math.PI*2); ctx.fill();
+  ctx.fillRect(10,e.y+14,1.6,2); ctx.fillRect(13,e.y+14,1.6,2);
+}
+function drawGuardBody(px, py, scale, isBoss, suit){
+  suit = suit || {};
+  const armor = suit.flash ? '#ffd9d9' : (suit.armor||'#8b2230');
+  const trim  = suit.trim || '#a83a48';
+  const helm  = suit.helm || '#000000';
+  ctx.save(); ctx.translate(px,py); ctx.scale(scale,scale); ctx.translate(-14,0);
+  // 다리
+  ctx.fillStyle='#2a2620'; ctx.fillRect(10,34,7,10); ctx.fillRect(17,34,7,10);
+  // 몸 - 갑옷(유형별 색)
+  ctx.fillStyle=armor; ctx.fillRect(8,12,19,24);
+  ctx.fillStyle=trim; ctx.fillRect(8,12,19,8);
+  // 벨트
+  ctx.fillStyle='#3a1207'; ctx.fillRect(8,28,19,4);
+  // 팔(무기 손)
+  ctx.fillStyle=armor; ctx.fillRect(22,14,7,5);
+  ctx.fillRect(4,14,6,5);
+  // 무기
+  if(!isBoss){
+    if(suit.spear){   // 점퍼: 창
+      ctx.fillStyle='#8a6a3a'; ctx.fillRect(24,2,3,26);
+      ctx.fillStyle='#dde3e8'; ctx.fillRect(23,0,5,6);
+    } else {          // 워커: 검
+      ctx.fillStyle='#dde3e8'; ctx.fillRect(20,4,26,3);
+      ctx.fillStyle='#8a5a20'; ctx.fillRect(19,3,5,5);
+    }
+  }
+  // 머리
+  ctx.fillStyle=helm; // 헬멧
+  ctx.beginPath(); ctx.arc(18,5,8,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#c9b08a'; ctx.beginPath(); ctx.arc(18,7,5,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#6b1800'; ctx.beginPath(); ctx.arc(18,-1,7,0,Math.PI); ctx.fill();
+  // 뿔(차저)
+  if(suit.horns){
+    ctx.fillStyle='#e8e2d0';
+    ctx.beginPath(); ctx.moveTo(10,0); ctx.lineTo(4,-7); ctx.lineTo(12,-2); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(26,0); ctx.lineTo(32,-7); ctx.lineTo(24,-2); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawBoss(){
+  const b = boss;
+  const x = b.x-camX, y = b.y;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(b.f, 1);
+  const flash = b.hitFx>0;
+  const bone  = flash? '#fffbe8' : '#e9e2d0';   // 뼈 색(피격 시 깜빡)
+  const shade = flash? '#f2eab8' : '#cfc5a8';
+  const dark  = '#201812';
+  const gold  = '#d9b23a';
+
+  // 상태별 검 각도 (로컬 +x=플레이어 방향)
+  let sw = 0.28 + Math.sin(b.walk*0.5)*0.12;   // 대기 자세
+  if(b.state==='telegraph') sw = -1.6;          // 위로 들어올림(예고)
+  else if(b.state==='attack'){
+    if(b.atk==='combo'||b.atk==='slash1'||b.atk==='slash2') sw = -1.6 + (b.pa||0)*2.7; // 크게 휘두름
+    else if(b.atk==='spin') sw = (b.pa||0)*6.3 - 3.0;                                  // 회전베기
+    else if(b.atk==='charge') sw = 0.5;                                               // 찌르기
+    else if(b.atk==='jump') sw = -1.6;                                                // 내려찍기
+  }
+  if(!b.walk) b.walk=0;
+
+  // 걷기 애니메이션
+  const moving = (b.state==='approach' || ((b.atk==='spin'||b.atk==='charge') && b.state==='attack')) && b.onGround;
+  if(moving) b.walk += Math.abs(b.vx)*0.12;
+  const leg = moving? Math.sin(b.walk)*5 : 0;
+
+  // 다리 (뼈)
+  ctx.strokeStyle=bone; ctx.lineCap='round'; ctx.lineWidth=4;
+  ctx.beginPath();
+  ctx.moveTo(13,44); ctx.lineTo(9+leg, 56); ctx.lineTo(6+leg*1.5, 58);
+  ctx.moveTo(21,44); ctx.lineTo(25-leg,56); ctx.lineTo(28-leg*1.5,58);
+  ctx.stroke();
+
+  // 골반 + 척추(몸통)
+  ctx.fillStyle=bone;
+  ctx.beginPath(); ctx.moveTo(17,15); ctx.lineTo(22,42); ctx.lineTo(12,42); ctx.closePath(); ctx.fill();
+  ctx.fillStyle=dark; ctx.beginPath(); ctx.arc(14,42,2,0,Math.PI*2); ctx.arc(20,42,2,0,Math.PI*2); ctx.fill();
+  // 갈비뼈 (늑골)
+  ctx.strokeStyle=bone; ctx.lineWidth=2.6;
+  for(let i=0;i<4;i++){ const yy=21+i*4.5, w=6-i*1.1; ctx.beginPath(); ctx.moveTo(17-w, yy); ctx.lineTo(17+w, yy); ctx.stroke(); }
+  ctx.lineWidth=3.4; ctx.beginPath(); ctx.moveTo(17,15); ctx.lineTo(17,42); ctx.stroke();
+  // 쇄골/어깨
+  ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(13,18); ctx.lineTo(8,22); ctx.stroke();
+
+  // 머리 = 해골 (두골 + 눈구멍 + 턱)
+  ctx.fillStyle=bone;
+  ctx.beginPath(); ctx.arc(17,8,7.5,0,Math.PI*2); ctx.fill();
+  ctx.fillRect(13,8,8,6);                               // 턱
+  ctx.fillStyle=dark;
+  ctx.beginPath(); ctx.arc(14,7,2,0,Math.PI*2); ctx.arc(20,7,2,0,Math.PI*2); ctx.fill();   // 눈구멍
+  ctx.fillRect(16,10,2,2); ctx.fillRect(17,10,2,2);      // 코
+  ctx.fillStyle=bone;                                     // 이빨
+  ctx.fillRect(14,12,1.5,2); ctx.fillRect(16.5,12,1.5,2); ctx.fillRect(19,12,1.5,2);
+  // 황금 왕관
+  ctx.fillStyle=gold; ctx.fillRect(12,0,10,2.6); ctx.fillRect(14,-4,2,4.6); ctx.fillRect(17,-6,2,6.6); ctx.fillRect(20,-4,2,4.6);
+
+  // 팔 (반대팔 + 칼 드는 팔)
+  ctx.strokeStyle=bone; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(10,22); ctx.lineTo(6,28); ctx.stroke();
+
+  // 큰 검 (손잡이 기준으로 sw 각도로 휘두름)
+  ctx.save(); ctx.translate(25,20); ctx.rotate(sw);
+  ctx.fillStyle = flash? '#fffbe8' : '#d7dde4';
+  ctx.fillRect(0,-2.4, 32, 4.8);                                  // 칼날
+  ctx.fillStyle='#9fb3c0'; ctx.fillRect(16,-2.4, 16, 1.5);        // 칼날 하이라이트
+  ctx.fillStyle=gold; ctx.fillRect(-5,-5, 6,10);                 // 가드(황금)
+  ctx.fillStyle='#5a3a1a'; ctx.fillRect(-10,-2, 6,4);            // 손잡이
+  ctx.restore();
+
+  // 베기 잔상 (속도감)
+  if(b.state==='attack' && (b.atk==='combo'||b.atk==='slash1'||b.atk==='slash2') && b.pa>0.1 && b.pa<0.85){
+    ctx.strokeStyle='rgba(255,235,200,0.35)'; ctx.lineWidth=6; ctx.lineCap='round';
+    ctx.beginPath(); ctx.arc(17,18, 26, -1.7+b.pa*2.4, -0.4+b.pa*2.4); ctx.stroke();
+  }
+  // 텔레그래프 표시
+  if(b.state==='telegraph'){
+    ctx.fillStyle='rgba(255,40,40,0.65)';
+    ctx.font='bold 22px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('!', 17, -8-b.hitFx*80);
+  }
+  ctx.restore();
+}
+
+function drawPlayer(){
+  const x = p.x-camX, y = p.y;
+  const face = p.facing;
+  ctx.save();
+  ctx.translate(x, y);   // ★ y를 0이 아닌 p.y 로: 주인공을 제자리(땅)에 그린다
+  const hurt = p.hurtInv>0 && Math.floor(p.hurtInv*20)%2===0;
+  ctx.globalAlpha = hurt? 0.5 : 1;
+  ctx.scale(face,1);
+  // 앉으면 발끝 기준으로 세로로 압축 → 낮은 자세 (칼날 밑 통과)
+  if(p.crouch) ctx.scale(1, p.h/49);
+  // 다리 (걷기: 좌우가 번갈아 앞뒤로 휘두르며 발이 움직임)
+  const running = Math.abs(p.vx)>0.1 && p.onGround;
+  if(!p.dist) p.dist=0;
+  if(running) p.dist+=Math.abs(p.vx)*0.65; else p.dist=0;
+  const swing = running ? Math.sin(p.dist)*5 : 0;
+  const bob = running ? Math.sin(p.dist)*3 : 0;
+  ctx.fillStyle='#7a5a33';
+  ctx.fillRect(7+swing, 34+bob*0.3, 7, 13); ctx.fillRect(18-swing, 34-bob*0.3, 7, 13);
+  // 부츠
+  ctx.fillStyle='#3a2710';
+  ctx.fillRect(6+swing, 45, 9, 4); ctx.fillRect(17-swing, 45, 9, 4);
+  // 몸 - 갈색 외투/자켓
+  ctx.fillStyle='#6b4a24'; ctx.fillRect(7,14,20,22);
+  ctx.fillStyle='#7a5a2a'; ctx.fillRect(7,14,20,7);
+  // 셔츠 위 갈색 허리
+  ctx.fillStyle='#4a3218'; ctx.fillRect(7,30,20,4);
+  // 벨트 + 채찍 수납(공격중 아님일 때 허리 오른쪽에 고리)
+  if(p.attack<=0){
+    // 채찍 헤르메스
+    ctx.strokeStyle='#5a3a15'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(24,29,4,0,Math.PI*2); ctx.stroke();
+    ctx.strokeStyle='#6b4520';
+    ctx.beginPath(); ctx.arc(24,29,2,0,Math.PI*2); ctx.stroke();
+  }
+  // 팔
+  ctx.fillStyle='#6b4a24'; ctx.fillRect(22,15,7,6); ctx.fillRect(5,16,6,11);
+  ctx.fillStyle='#d8b58a'; ctx.fillRect(23,20,6,4); // 손
+  // 머리
+  ctx.fillStyle='#d8b58a'; ctx.beginPath(); ctx.arc(17,9,6,0,Math.PI*2); ctx.fill();
+  // 수염/얼굴 (탐험가)
+  ctx.fillStyle='#8a6a3a'; ctx.fillRect(14,7,6,2);
+  // 페도라
+  ctx.fillStyle='#4a3a1e';
+  ctx.beginPath(); ctx.arc(17,7,8,0,Math.PI*2); ctx.fill();
+  ctx.fillRect(9,5,16,3);
+  ctx.fillStyle='#5a4a27';
+  ctx.beginPath(); ctx.arc(17,3,4,0,Math.PI); ctx.fill();
+
+  // 채찍 휘두르기 시각효과
+  if(p.attack>0){
+    const t = p.attackT;
+    drawWhipSwing(28, 20, t);
+  }
+  ctx.restore();
+}
+
+function drawWhipSwing(ox, oy, t){
+  // t: 0→0.28 / 채찍 레벨이 오르면 길이도 함께 늘어남
+  const prog = Math.min(1, t/0.28);
+  const sc = whipLen()/62;
+  const segs = 14;
+  ctx.strokeStyle='#7a5a24'; ctx.lineWidth=2.4; ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.moveTo(ox, oy);
+  for(let i=1;i<=segs;i++){
+    const f = i/segs;
+    const ang = -1.15 + f * 1.9;         // 아래→위 스윙
+    const cur = prog;
+    const rad = (10 + f*34)*sc;
+    let xx = ox + Math.cos(ang - (cur*2.2))*rad;
+    let yy = oy + Math.sin(ang - (cur*2.2))*rad - cur*16;
+    ctx.lineTo(xx, yy);
+  }
+  ctx.stroke();
+  // 엔드 팁
+  ctx.fillStyle='#e8d8a0';
+  const fx = ox + Math.cos(-1.15 + 1.9 - (prog*2.2))*(10+44)*sc;
+  const fy = oy + Math.sin(-1.15 + 1.9 - (prog*2.2))*(10+44)*sc - prog*16;
+  ctx.beginPath(); ctx.arc(fx, fy, 3, 0, Math.PI*2); ctx.fill();
+}
+
+// ---------- HUD ----------
+function drawHUD(){
+  // 심장
+  for(let i=0;i<p.maxHp;i++){
+    const hx = 12+i*22, hy=12;
+    ctx.save();
+    ctx.fillStyle = i<p.hp ? '#d33' : '#555';
+    ctx.beginPath();
+    ctx.arc(hx-4, hy, 3.6, 0, Math.PI*2);
+    ctx.arc(hx, hy-1, 4, 0, Math.PI*2);
+    ctx.moveTo(hx-9, hy+1);
+    ctx.lineTo(hx-9, hy+1);
+    ctx.beginPath();
+    ctx.moveTo(hx-9, hy+2);
+    ctx.lineTo(hx-8, hy+6);
+    ctx.quadraticCurveTo(hx-4, hy+10, hx, hy+6);
+    ctx.lineTo(hx, hy+6);
+    ctx.quadraticCurveTo(hx+4, hy+10, hx+6, hy+6);
+    ctx.lineTo(hx+7, hy+2);
+    ctx.quadraticCurveTo(hx+7, hy-2, hx+4, hy-2);
+    ctx.quadraticCurveTo(hx+1, hy-2, hx, hy+1);
+    ctx.quadraticCurveTo(hx-1, hy-2, hx-5, hy-2);
+    ctx.quadraticCurveTo(hx-8, hy-2, hx-9, hy+2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  // 점수
+  ctx.fillStyle='#ffe29a';
+  ctx.font='bold 15px sans-serif';
+  ctx.textAlign='left';
+  ctx.fillText('유물: '+score+'  (황금 '+gems+')', 14, 52);
+  // 채찍 레벨 (아이템을 먹을수록 범위 증가)
+  ctx.fillStyle='#d9b23a';
+  ctx.font='bold 13px sans-serif';
+  ctx.fillText('채찍 Lv.'+p.whipLv, 14, 88);
+  // 토스트 메시지
+  if(toastT>0 && toast){
+    ctx.fillStyle='rgba(0,0,0,0.55)';
+    ctx.fillRect(W/2-130, 56, 260, 30);
+    ctx.fillStyle='#ffe29a';
+    ctx.font='bold 15px sans-serif'; ctx.textAlign='center';
+    ctx.fillText(toast, W/2, 76);
+  }
+  // 디버그(원인 판별용) : 플레이어/적 좌표
+  const e0 = enemies[0];
+  ctx.fillStyle='#9fa06a'; ctx.font='11px monospace';
+  ctx.fillText('dbg P y='+p.y.toFixed(0)+' g='+(p.onGround?'O':'x')+' vy='+p.vy.toFixed(1)
+    +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
+  ctx.fillStyle='#caa86a';
+  ctx.font='12px sans-serif';
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.19]', W/2, 22);
+  ctx.textAlign='right';
+  const t = ((performance.now()-startTime)/1000);
+  ctx.fillStyle='#caa86a';
+  ctx.font='13px sans-serif';
+  ctx.fillText('시간 '+Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0'), W-14, 22);
+}
+function drawBossBar(){
+  ctx.fillStyle='rgba(0,0,0,0.55)';
+  ctx.fillRect(W/2-210, 34, 420, 26);
+  ctx.strokeStyle='#6b4a22'; ctx.lineWidth=2; ctx.strokeRect(W/2-210,34,420,26);
+  const r = boss.hp/boss.maxHp;
+  ctx.fillStyle='#a32218';
+  ctx.fillRect(W/2-206, 38, 412*r, 18);
+  ctx.fillStyle='#fff';
+  ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('사원의 수호자', W/2, 52);
+}
+function drawMessage(msg, dur){
+  ctx.fillStyle='rgba(0,0,0,0.5)';
+  ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#ffd';
+  ctx.font='bold 22px sans-serif'; ctx.textAlign='center';
+  ctx.fillText(msg, W/2, H/2);
+  ctx.font='14px sans-serif'; ctx.fillStyle='#fc8';
+  ctx.fillText('가까이 다가가면 싸움이 시작됩니다.', W/2, H/2+26);
+}
+function drawMenu(){
+  ctx.fillStyle='rgba(0,0,0,0.62)';
+  ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';
+  ctx.fillStyle='#e8c66a';
+  ctx.font='bold 40px serif';
+  ctx.fillText('잃어버린 사원', W/2, 130);
+  ctx.font='20px serif'; ctx.fillStyle='#c9a86a';
+  ctx.fillText('— 채찍의 탐험가 · Stage 1 —', W/2, 166);
+  ctx.font='15px sans-serif'; ctx.fillStyle='#e8d8b8';
+  ctx.fillText('고대 신전 깊숙이. 추억의 영화(인디아나 존스풍)처럼', W/2, 230);
+  ctx.fillText('채찍을 휘둘러 가드를 쓰러뜨리고 퍼즐을 풀어', W/2, 254);
+  ctx.fillText('마지막 거대 야만검사를 상대하세요.', W/2, 278);
+  ctx.font='16px sans-serif'; ctx.fillStyle='#ffe29a';
+  ctx.fillText('← → 이동  ·  Space 점프  ·  J/X 채찍  ·  Enter 시작', W/2, 340);
+  ctx.fillStyle='#caa86a'; ctx.font='14px sans-serif';
+  ctx.fillText('[ 팁 ] 블록을 밀어 스위치에 올리면 철창이 열립니다.', W/2, 392);
+  const pulse = Math.floor(performance.now()/500)%2===0;
+  ctx.fillStyle = pulse? '#fff' : '#ffd95a';
+  ctx.font='bold 24px sans-serif';
+  ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
+  // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
+  ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
+  ctx.fillText('BUILD v2.19 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+}
+function drawClear(){
+  ctx.fillStyle='rgba(0,0,0,0.55)';
+  ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';
+  ctx.fillStyle='#ffe36b'; ctx.font='bold 46px serif';
+  ctx.fillText('신전 수복 완료!', W/2, 180);
+  ctx.font='20px serif'; ctx.fillStyle='#c9a86a';
+  ctx.fillText('야만검사가 쓰러졌다… 황금의 심장을 챙기는 순간', W/2, 230);
+  ctx.fillText('하늘이 무너지듯 사원이 흔들린다!', W/2, 258);
+  ctx.font='16px serif'; ctx.fillStyle='#ffd';
+  ctx.fillText('점수: '+score+'   유물: '+gems+'개   시간: '+Math.floor((performance.now()-startTime)/1000)+'초', W/2, 310);
+  ctx.font='bold 22px sans-serif'; ctx.fillStyle='#ffe29a';
+  ctx.fillText('스테이지 1 클리어!', W/2, 360);
+  // 다음 챕터 안내
+  ctx.font='bold 20px sans-serif'; ctx.fillStyle='#e8b45a';
+  ctx.fillText('— 다음 챕터 제작 중 —', W/2, 396);
+  ctx.font='14px sans-serif'; ctx.fillStyle='#caa86a';
+  ctx.fillText('곧 새로운 사원이 열립니다…', W/2, 420);
+  ctx.font='16px sans-serif'; ctx.fillStyle='#caa86a';
+  ctx.fillText('ENTER → 다시 시작', W/2, 452);
+}
+function drawGameOver(){
+  ctx.fillStyle='rgba(30,0,0,0.66)';
+  ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';
+  ctx.fillStyle='#c33'; ctx.font='bold 48px serif';
+  ctx.fillText('쓰러졌습니다', W/2, 200);
+  ctx.font='16px sans-serif'; ctx.fillStyle='#e8d8b8';
+  ctx.fillText('신전의 어둠이 당신을 집어삼켰다…', W/2, 250);
+  ctx.font='bold 22px sans-serif'; ctx.fillStyle='#ffe29a';
+  ctx.fillText('ENTER → 다시 도전', W/2, 320);
+}
+
+// ============================================================
+//  메인 루프
+// ============================================================
+let last = performance.now();
+function loop(now){
+  requestAnimationFrame(loop);
+  let dt = (now-last)/1000; last = now;
+  if(dt>0.05) dt = 0.05;
+  if(state==='play') update(dt);
+  else if(state==='clear' || state==='gameover') update(dt);
+  render();
+}
+// 초기화
+function init(){
+  buildLevel();
+  collectGemsFromGrid();
+  resetPlayer();
+  state='menu';
+  requestAnimationFrame(loop);
+}
+init();
+
+</script>
+</body>
+</html>
