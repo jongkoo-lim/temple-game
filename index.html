@@ -883,7 +883,22 @@ function updateBoss(dt, s, active){
     return;
   }
   if(bossDead){
-    if(b.deadT>0){ b.deadT-=dt; b.vx=0; b.hitFx=0.1; if(b.deadT<=0){ state='clear'; clearTimer=1.4; sfx('clear'); } }
+    if(b.deadT>0){
+      b.deadT-=dt;
+      // 0.7초에 걸쳐 뒤로 쓰러짐 (진행도 0→1)
+      const prev = b.deadFall||0;
+      b.deadFall = Math.min(1, prev + dt/0.7);
+      if(prev<1 && b.deadFall>=1){          // 땅에 닿는 순간: 먼지 + 화면 흔들림
+        burst(b.x+b.w/2, b.y+b.h-6, '#cfc8b0', 18); shake=9; sfx('hit');
+      }
+      if(b.deadFall<1){                     // 쓰러지는 동안 밀림 감쇠 + 낙하
+        if(!b.onGround) b.vy += 0.55*s;
+        b.vx *= 0.95;
+        moveBody(b, s);
+      } else { b.vx=0; b.vy=0; }
+      b.hitFx=0.1;
+      if(b.deadT<=0){ state='clear'; clearTimer=1.4; sfx('clear'); }
+    }
     return;
   }
   if(b.hitCd>0) b.hitCd-=dt;
@@ -982,7 +997,10 @@ function updateBoss(dt, s, active){
 let deadInitDone=false;
 function bossDeadInit(){
   if(deadInitDone) return; deadInitDone=true;
-  boss.deadT = 1.6; boss.hp=0; boss.vx=0;
+  boss.deadT = 1.6; boss.hp=0;
+  boss.state='dead'; boss.deadFall=0;                 // 쓰러지는 모션 진행도
+  boss.vx = -boss.f*2.2; boss.vy = -3.5;              // 뒤로 밀려나며 공중으로 살짝 뜸
+  boss.onGround = false;
   for(let i=0;i<40;i++)
     burst(boss.x+boss.w/2, boss.y+boss.h/2, i%2? '#fff':'#d99', 1);
   shake=12; sfx('boss');
@@ -1369,6 +1387,12 @@ function drawBoss(){
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(b.f, 1);
+  // 사망 모션: 발끝(17,58)을 축으로 뒤로 쓰러지는 회전 (부드러운 가속)
+  if(bossDead){
+    const fall = Math.min(1, b.deadFall||0);
+    const ease = fall*fall;                     // 점점 빨라지며 쓰러짐
+    ctx.translate(17, 58); ctx.rotate(-ease*1.38); ctx.translate(-17, -58);
+  }
   const flash = b.hitFx>0;
   const bone  = flash? '#fffbe8' : '#e9e2d0';   // 뼈 색(피격 시 깜빡)
   const shade = flash? '#f2eab8' : '#cfc5a8';
@@ -1415,6 +1439,15 @@ function drawBoss(){
   ctx.fillRect(13,8,8,6);                               // 턱
   ctx.fillStyle=dark;
   ctx.beginPath(); ctx.arc(14,7,2,0,Math.PI*2); ctx.arc(20,7,2,0,Math.PI*2); ctx.fill();   // 눈구멍
+  if(bossDead){                                    // 사망: X자 눈
+    ctx.strokeStyle=dark; ctx.lineWidth=1.2;
+    for(const ex of [14,20]){
+      ctx.beginPath();
+      ctx.moveTo(ex-2.2, 4.8); ctx.lineTo(ex+2.2, 9.2);
+      ctx.moveTo(ex+2.2, 4.8); ctx.lineTo(ex-2.2, 9.2);
+      ctx.stroke();
+    }
+  }
   ctx.fillRect(16,10,2,2); ctx.fillRect(17,10,2,2);      // 코
   ctx.fillStyle=bone;                                     // 이빨
   ctx.fillRect(14,12,1.5,2); ctx.fillRect(16.5,12,1.5,2); ctx.fillRect(19,12,1.5,2);
@@ -1607,7 +1640,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.24]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.25]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1657,7 +1690,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.24 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.25 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
