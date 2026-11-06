@@ -220,6 +220,8 @@ function respawn(){
   p.hp--;
   if(p.hp<=0 && state==='play'){ p.hp=0; state='gameover'; overTimer=0; return; }
   p.x = checkpoint.x; p.y = checkpoint.y; p.vx=0; p.vy=0; p.hurtInv=1.5;
+  spawnEnemies();          // 적도 플레이어와 함께 리스폰 (전멸/이동 상태 초기화)
+  showToast('리스폰! 적들이 다시 몰려온다', 1.4);
 }
 
 function tryAttack(){
@@ -360,18 +362,7 @@ function buildLevel(){
   checkpoint = { x:70, y:16*TILE-46 };
   cpAdv1 = false; cpAdv2 = false;
 
-  // 적 스폰 - 유형별(걷는 가드/점퍼/차저/플라이어), 마지막 인자=밟는 SOLID 행
-  spawnGuard(12, 16, 'walk');    // 입구 (저지대)
-  spawnGuard(23, 16, 'jump');    // 저지대 점퍼
-  spawnGuard(46, 11, 'charge');  // 고지대 입구 차저
-  spawnGuard(52, 11, 'walk');    // 칼날 지대 가드
-  spawnGuard(75, 11, 'walk');    // 보석 탑 근처
-  spawnGuard(99, 11, 'jump');    // 구덩이2 뒤 복도 점퍼
-  spawnGuard(129, 11, 'walk');   // 유적 디딤돌 근처
-  spawnGuard(146, 11, 'jump');   // 가시 지대 점퍼
-  spawnGuard(159, 11, 'charge'); // 신전 문 앞 차저
-  spawnFlyer(117, 9);            // 구덩이3 위를 나는 박쥐
-  spawnFlyer(137, 5);            // 높은 평탄 위를 나는 박쥐
+  spawnEnemies();
 
   // 이동발판 (횡단 - 구덩이 위를 표면과 같은 높이로 왕복, 건너는 페리)
   platforms.push( makePlatform(64.5*TILE, 10*TILE+32, 1) );   // 구덩이1(col58~71)
@@ -404,6 +395,22 @@ function spawnFlyer(col, row){
   enemies.push({ x:col*TILE, y:row*TILE, w:24, h:20, vx:0, vy:0, onGround:false,
     hp:1, f:1, speed:0, hitCd:0, mx:col*TILE,
     kind:'fly', baseY:row*TILE, t:Math.random()*6, range:160 });
+}
+function spawnEnemies(){
+  // 적 스폰 - 유형별(걷는 가드/점퍼/차저/플라이어), 마지막 인자=밟는 SOLID 행
+  //  (게임 시작 + 플레이어 리스폰 시 모두 호출되어 적도 함께 리스폰됨)
+  enemies.length = 0;
+  spawnGuard(12, 16, 'walk');    // 입구 (저지대)
+  spawnGuard(23, 16, 'jump');    // 저지대 점퍼
+  spawnGuard(46, 11, 'charge');  // 고지대 입구 차저
+  spawnGuard(52, 11, 'walk');    // 칼날 지대 가드
+  spawnGuard(75, 11, 'walk');    // 보석 탑 근처
+  spawnGuard(99, 11, 'jump');    // 구덩이2 뒤 복도 점퍼
+  spawnGuard(129, 11, 'walk');   // 유적 디딤돌 근처
+  spawnGuard(146, 11, 'jump');   // 가시 지대 점퍼
+  spawnGuard(159, 11, 'charge'); // 신전 문 앞 차저
+  spawnFlyer(117, 9);            // 구덩이3 위를 나는 박쥐
+  spawnFlyer(137, 5);            // 높은 평탄 위를 나는 박쥐
 }
 // ---------- 입력 ----------
 window.addEventListener('keydown', e=>{
@@ -1594,7 +1601,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.22]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.23]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1644,7 +1651,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.22 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.23 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
