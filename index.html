@@ -87,6 +87,11 @@ const ARENAR = 198;                       // 어레나 오른쪽 끝 컬럼
 // 채찍 강화 아이템 / 안내 토스트
 let whipItems = [];
 let toast = null, toastT = 0;
+// 보물 상자 : 보스 누적 클리어 5회부터 쓰러진 자리에서 솟아오르는 특별 보상
+let chest = null;
+let totalClears = 0;
+try{ totalClears = parseInt(localStorage.getItem('templeClears')||'0')||0; }catch(e){}
+const CHEST_CLEAR_REQ = 5;
 function showToast(msg, dur){ toast = msg; toastT = dur||1.6; }
 let checkpoint = { x: 64, y: 460 };
 let cpAdv1 = false, cpAdv2 = false;
@@ -327,6 +332,22 @@ function buildLevel(){
   set(154,4,'g');                  // 벽 꼭대기 보석
   set(157,9,'g'); set(159,9,'g');  // 신전 문 앞 복도
 
+  // [V] 수직 탐험 구조 - 상층 발판(적+보석) : 화면 위쪽 빈 공간을 채워 입체감 부여
+  // 저지대 : 2단 계단식 상층 (지면 → 1단 → 2단, 각 3칸 점프)
+  fill(29,32,13,13,'#');           // 1단 발판 (row13)
+  fill(34,37,10,10,'#');           // 2단 발판 (row10)
+  set(30,12,'g');                  // 1단 위 보석
+  set(35,9,'g'); set(36,9,'g');    // 2단 위 보석 (가드가 지킴)
+  // 구덩이2 상공 섬 : 이동발판을 타다가 점프해서 올라탐
+  fill(88,91,8,8,'#');
+  set(89,7,'g'); set(90,7,'g');
+  // 복도 상층 발판 : 복도 지면(row11)에서 점프 3칸
+  fill(100,103,8,8,'#');
+  set(101,7,'g'); set(102,7,'g');
+  // 유적 가시밭 상층 발판 : 가시를 점프로 넘는 김에 위로!
+  fill(146,149,8,8,'#');
+  set(148,7,'h');                  // 상층 하트 (발판 가드가 지킴)
+
   // [9] 보스 아레나 : 독립된 방 (용암 위 해골 섬 + 신전의 문)
   //      섬 표면 row11(K=뼈), 아래 row12~17은 용암 구덩이, 천장과 신전의 문으로 밀폐
   for(let c=ARENAL;c<=ARENAR;c++) set(c,11,'K');       // 뼈 섬 표면
@@ -388,11 +409,11 @@ function buildLevel(){
 function makePlatform(x,y,axis){ // axis 1=수평, 0=수직 (넓고 느리게 → 탑승 난이도 완화)
   return { x, y, w:140, h:16, axis, baseX:x, baseY:y, t:Math.random()*10, on:false };
 }
-function spawnGuard(col, groundRow, kind){
+function spawnGuard(col, groundRow, kind, leash){
   const gy = groundRow*TILE - 44;
   enemies.push({ x:col*TILE+6, y:gy, w:22, h:42, vx:0.7, vy:0, onGround:false,
     hp:1, f:1, speed:0.7, minX:col*TILE-70, maxX:col*TILE+70, hitCd:0, mx:(col*TILE+6),
-    kind:kind||'walk', hopT:0.8+Math.random()*0.8, st:'idle', t:0, range:150 });
+    kind:kind||'walk', hopT:0.8+Math.random()*0.8, st:'idle', t:0, range:150, leash:leash||0 });
 }
 function spawnFlyer(col, row){
   // 나는 해골박쥐: 중력 없이 사인파로 떠다니며 접근
@@ -415,6 +436,12 @@ function spawnEnemies(){
   spawnGuard(159, 11, 'charge'); // 신전 문 앞 차저
   spawnFlyer(117, 9);            // 구덩이3 위를 나는 박쥐
   spawnFlyer(137, 5);            // 높은 평탄 위를 나는 박쥐
+  // 상층 발판 지킴이들 (leash=발판 위에서만 배회)
+  spawnGuard(35, 10, 'walk', 30);   // 저지대 2단 발판 (보석 지킴)
+  spawnGuard(101, 8, 'walk', 30);   // 복도 상층 발판 (보석 지킴)
+  spawnGuard(147, 8, 'walk', 28);   // 유적 상층 발판 (하트 지킴)
+  spawnFlyer(32, 8);                // 저지대 상층을 도는 박쥐
+  spawnFlyer(103, 6);               // 복도 상층을 도는 박쥐
 }
 // ---------- 입력 ----------
 window.addEventListener('keydown', e=>{
@@ -440,7 +467,7 @@ function startGame(){
   resetPlayer();
   p.whipLv = 1;                  // 새 게임마다 무기 상태 초기화
   p.weapon='whip'; p.pistolLv=1; p.ammo=0; p.maxAmmo=0; p.reloadT=0;
-  deadInitDone = false;
+  deadInitDone = false; chest = null;
   score=0; gems=0; state='play'; startTime=performance.now();
   camX = Math.max(0, Math.min(p.x-W/2, COLS*TILE-W));
 }
@@ -459,7 +486,8 @@ function update(dt){
     updatePlatforms(dt);
     updateBlades(dt);
     updateCutscene(dt);
-    if(boss && !bossDead) updateBoss(dt, s, bossActive);
+    if(boss) updateBoss(dt, s, bossActive);   // 사망 후에도 쓰러짐/보물상자 시퀀스를 위해 계속 갱신
+    updateChest(dt);
     updateGems();
     updateBullets(dt, s);
     // 권총 탄약 서서히 장전 (탄창이 비면 완전히 막히지 않게)
@@ -682,8 +710,8 @@ function updateEnemies(dt, s){
       moveBody(e, s);
       // 벽이나 범위 밖이면 뒤집기
       if(e.hitWall!==0){ e.f*=-1; if(e.kind==='charge'&&e.st==='dash'){ e.st='rest'; e.t=0; } }
-      // 이동 제한 (차저/점퍼는 조금 더 넓게)
-      const leash = e.kind==='charge'||e.kind==='jump' ? (e.range||150) : 80;
+      // 이동 제한 (차저/점퍼는 조금 더 넓게 / 상층 발판 적은 좁게 발판 위에만)
+      const leash = e.leash || (e.kind==='charge'||e.kind==='jump' ? (e.range||150) : 80);
       if(e.x < e.mx-leash){ e.f=1; e.x=e.mx-leash; }
       if(e.x > e.mx+leash){ e.f=-1; e.x=e.mx+leash; }
     }
@@ -897,7 +925,15 @@ function updateBoss(dt, s, active){
         moveBody(b, s);
       } else { b.vx=0; b.vy=0; }
       b.hitFx=0.1;
-      if(b.deadT<=0){ state='clear'; clearTimer=1.4; sfx('clear'); }
+      if(b.deadT<=0){
+        if(totalClears >= CHEST_CLEAR_REQ && !chest){
+          // 누적 5회 이상 클리어 : 쓰러진 자리에서 보물 상자가 솟아오른다!
+          chest = { x: Math.max(ARENAL*TILE+16, Math.min(boss.x+boss.w/2-18, 196*TILE-16)),
+                    w:36, h:30, rise:0, risen:false, opened:false, openT:0 };
+          showToast('신전의 바닥이 흔들린다… 무언가 올라온다!', 2.4);
+          shake=8; sfx('door');
+        } else { state='clear'; clearTimer=1.4; sfx('clear'); }
+      }
     }
     return;
   }
@@ -1001,12 +1037,53 @@ function bossDeadInit(){
   boss.state='dead'; boss.deadFall=0;                 // 쓰러지는 모션 진행도
   boss.vx = -boss.f*2.2; boss.vy = -3.5;              // 뒤로 밀려나며 공중으로 살짝 뜸
   boss.onGround = false;
+  // 누적 클리어 횟수 기록 (브라우저에 저장) - 5회부터 특별 보상
+  totalClears++;
+  try{ localStorage.setItem('templeClears', String(totalClears)); }catch(e){}
   for(let i=0;i<40;i++)
     burst(boss.x+boss.w/2, boss.y+boss.h/2, i%2? '#fff':'#d99', 1);
   shake=12; sfx('boss');
 }
 // 갱신 시 bossDead 리셋을 위해 startGame에서 처리를 위해 아래에서 deadInitDone 재설정
 function resetBossFlags(){ deadInitDone=false; }
+
+// ---------- 보물 상자 (누적 5회 클리어 보상) ----------
+function updateChest(dt){
+  if(!chest) return;
+  const c = chest;
+  if(!c.risen){
+    // 바닥에서 1.8초에 걸쳐 솟아오름 (부드러운 가속)
+    c.rise += dt/1.8;
+    if(Math.random()<0.35) burst(c.x+Math.random()*c.w, 11*TILE, '#bfa77a', 2);   // 올라오며 흙먼지
+    if(c.rise>=1){
+      c.rise=1; c.risen=true; sfx('slam'); shake=6;
+      burst(c.x+c.w/2, 11*TILE, '#cfc8b0', 16);
+      showToast('오래된 보물 상자! 가까이서 공격(J/X)으로 열어보자', 2.6);
+    }
+  }
+  else if(!c.opened){
+    // 상자 근처에서 공격하면 개봉 (채찍/권총 모두 가능)
+    const near = overlap(p, { x:c.x-14, y:c.y-14, w:c.w+28, h:c.h+28 });
+    if(near && p.attack>0){
+      c.opened=true; c.openT=0; sfx('clear'); shake=7;
+      score += 1000;
+      showToast('보물 발견! 전설의 보석 +1000', 2.8);
+      const cols = ['#ffd75a','#7fe3a0','#ff8fb3','#9fd8ff'];
+      for(let i=0;i<28;i++) burst(c.x+c.w/2, c.y+6, cols[i%4], 1);
+    }
+  }
+  else {
+    c.openT += dt;
+    // 보석 분수 : 상자에서 보석들이 계속 솟구침 (2.5초)
+    if(c.openT<2.5 && Math.random()<0.5){
+      const cols = ['#ffd75a','#7fe3a0','#ff8fb3','#9fd8ff'];
+      particles.push({ x:c.x+c.w/2+(Math.random()*20-10), y:c.y+8,
+        vx:(Math.random()*2-1)*1.3, vy:-(2.2+Math.random()*2.8),
+        life:0.8+Math.random()*0.6, color:cols[(Math.random()*4)|0], s:2+Math.random()*2 });
+    }
+    if(c.openT>3.4 && state==='play'){ state='clear'; clearTimer=1.4; sfx('clear'); }
+  }
+}
 
 // ---------- 파서: 수집품 그리드->리스트 ----------
 function collectGemsFromGrid(){
@@ -1065,6 +1142,7 @@ function render(){
 
   // 보스
   if(boss && (bossActive||bossDead)) drawBoss();
+  if(chest) drawChest();
 
   // 플레이어
   if(state!=='clear'||clearTimer>0) drawPlayer();
@@ -1481,6 +1559,63 @@ function drawBoss(){
   ctx.restore();
 }
 
+function drawChest(){
+  const c = chest;
+  // 올라오는 중: 부드러운 가속(smoothstep)으로 바닥 위로 솟음
+  const r = Math.min(1, c.rise);
+  const ease = r*r*(3-2*r);
+  const x = c.x - camX;
+  const y = (11*TILE - 30) + (1-ease)*58;     // 완전히 올라오면 바닥(row11)에 앉음
+  ctx.save();
+  if(c.opened){
+    const lt = Math.min(1, c.openT/0.35);              // 빛 퍼짐 진행
+    const fade = Math.max(0, 1 - c.openT/3);           // 서서히 잦아듦
+    // 하늘로 뻗는 빛 기둥
+    const g1 = ctx.createLinearGradient(0, y-170, 0, y+16);
+    g1.addColorStop(0, 'rgba(255,250,210,0)');
+    g1.addColorStop(1, 'rgba(255,250,210,'+(0.55*fade)+')');
+    ctx.fillStyle = g1; ctx.fillRect(x-16, y-170, c.w+32, 180);
+    // 상자 안의 빛 (방사형 글로우)
+    const rg = ctx.createRadialGradient(x+c.w/2, y+10, 2, x+c.w/2, y+10, 10+50*lt);
+    rg.addColorStop(0, 'rgba(255,252,225,'+(0.85*fade)+')');
+    rg.addColorStop(1, 'rgba(255,252,225,0)');
+    ctx.fillStyle = rg;
+    ctx.beginPath(); ctx.arc(x+c.w/2, y+10, 10+50*lt, 0, Math.PI*2); ctx.fill();
+  }
+  // 몸통 (나무 + 황금 밴딩)
+  ctx.fillStyle='#6b4a24'; ctx.fillRect(x, y+12, c.w, 18);
+  ctx.fillStyle='#8a6234'; ctx.fillRect(x, y+12, c.w, 5);
+  ctx.fillStyle='#d9b23a';
+  ctx.fillRect(x+2, y+12, 4, 18); ctx.fillRect(x+c.w-6, y+12, 4, 18);
+  ctx.fillRect(x+c.w/2-3, y+14, 6, 9);
+  if(!c.opened){
+    // 닫힌 뚜껑 + 자물쇠
+    ctx.fillStyle='#7a5a2c'; ctx.fillRect(x-2, y+4, c.w+4, 10);
+    ctx.fillStyle='#d9b23a'; ctx.fillRect(x, y+4, c.w, 3);
+    ctx.fillStyle='#d9b23a'; ctx.fillRect(x+c.w/2-4, y+1, 8, 6);
+    ctx.fillStyle='#5a3a1a'; ctx.fillRect(x+c.w/2-1, y+4, 2, 3);
+  } else {
+    // 열린 뚜껑 (뒤통수 쪽으로 젖혀짐)
+    const lid = Math.min(1, c.openT/0.3);
+    ctx.save(); ctx.translate(x-2, y+13); ctx.rotate(-lid*2.1);
+    ctx.fillStyle='#7a5a2c'; ctx.fillRect(0, -10, c.w+4, 10);
+    ctx.fillStyle='#d9b23a'; ctx.fillRect(2, -10, c.w, 3);
+    ctx.restore();
+    // 쏟아지는 보석 더미 (상자 입구)
+    for(let i=0;i<4;i++){
+      ctx.fillStyle=['#ffd75a','#7fe3a0','#ff8fb3','#9fd8ff'][i];
+      const gx = x+6+i*8, gy = y+12 - Math.sin(c.openT*3+i)*2;
+      ctx.beginPath(); ctx.moveTo(gx,gy-4); ctx.lineTo(gx+4,gy); ctx.lineTo(gx,gy+4); ctx.lineTo(gx-4,gy); ctx.closePath(); ctx.fill();
+    }
+  }
+  ctx.restore();
+  // 개봉 직후 화면 전체 밝은 플래시
+  if(c.opened && c.openT<0.7){
+    ctx.fillStyle='rgba(255,255,240,'+(0.55*(1-c.openT/0.7))+')';
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
 function drawPlayer(){
   const x = p.x-camX, y = p.y;
   const face = p.facing;
@@ -1640,7 +1775,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.25]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.26]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1684,13 +1819,18 @@ function drawMenu(){
   ctx.fillText('← → 이동  ·  Space 점프  ·  J/X 채찍  ·  Enter 시작', W/2, 340);
   ctx.fillStyle='#caa86a'; ctx.font='14px sans-serif';
   ctx.fillText('[ 팁 ] 블록을 밀어 스위치에 올리면 철창이 열립니다.', W/2, 392);
+  ctx.fillStyle = totalClears >= CHEST_CLEAR_REQ ? '#ffe29a' : '#b99a6a';
+  ctx.font='14px sans-serif';
+  ctx.fillText('[ 누적 클리어 '+totalClears+'회 ] '+(totalClears>=CHEST_CLEAR_REQ
+    ? '보스를 쓰러뜨리면 숨겨진 보물 상자가…!'
+    : CHEST_CLEAR_REQ+'회 이상 클리어 시 특별한 보물이 나타납니다…'), W/2, 418);
   const pulse = Math.floor(performance.now()/500)%2===0;
   ctx.fillStyle = pulse? '#fff' : '#ffd95a';
   ctx.font='bold 24px sans-serif';
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.25 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.26 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
@@ -1703,6 +1843,8 @@ function drawClear(){
   ctx.fillText('하늘이 무너지듯 사원이 흔들린다!', W/2, 258);
   ctx.font='16px serif'; ctx.fillStyle='#ffd';
   ctx.fillText('점수: '+score+'   유물: '+gems+'개   시간: '+Math.floor((performance.now()-startTime)/1000)+'초', W/2, 310);
+  ctx.font='14px sans-serif'; ctx.fillStyle='#b99a6a';
+  ctx.fillText('누적 클리어: '+totalClears+'회', W/2, 336);
   ctx.font='bold 22px sans-serif'; ctx.fillStyle='#ffe29a';
   ctx.fillText('스테이지 1 클리어!', W/2, 360);
   // 다음 챕터 안내
