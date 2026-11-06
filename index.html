@@ -230,6 +230,8 @@ function respawn(){
 }
 
 function tryAttack(){
+  // 보물 상자: 근처에서 공격 입력 시 즉시 개봉 (무기/탄약과 무관)
+  if(openChestIfNear()) return;
   // 현재 장착 무기에 따라 분기: 권총을 먹으면 채찍은 사용 불가 (그 반대도)
   if(p.weapon==='pistol') tryShoot();
   else tryWhip();
@@ -1048,7 +1050,19 @@ function bossDeadInit(){
 // 갱신 시 bossDead 리셋을 위해 startGame에서 처리를 위해 아래에서 deadInitDone 재설정
 function resetBossFlags(){ deadInitDone=false; }
 
-// ---------- 보물 상자 (누적 5회 클리어 보상) ----------
+// ---------- 보물 상자 (보스 처치 보상) ----------
+function openChestIfNear(){
+  if(!chest || !chest.risen || chest.opened) return false;
+  const c = chest;
+  if(!overlap(p, { x:c.x-14, y:c.y-14, w:c.w+28, h:c.h+28 })) return false;
+  // 개봉!
+  c.opened=true; c.openT=0; sfx('clear'); shake=7;
+  score += 1000;
+  showToast('보물 발견! 전설의 보석 +1000', 2.8);
+  const cols = ['#ffd75a','#7fe3a0','#ff8fb3','#9fd8ff'];
+  for(let i=0;i<28;i++) burst(c.x+c.w/2, c.y+6, cols[i%4], 1);
+  return true;
+}
 function updateChest(dt){
   if(!chest) return;
   const c = chest;
@@ -1063,15 +1077,7 @@ function updateChest(dt){
     }
   }
   else if(!c.opened){
-    // 상자 근처에서 공격하면 개봉 (채찍/권총 모두 가능)
-    const near = overlap(p, { x:c.x-14, y:c.y-14, w:c.w+28, h:c.h+28 });
-    if(near && p.attack>0){
-      c.opened=true; c.openT=0; sfx('clear'); shake=7;
-      score += 1000;
-      showToast('보물 발견! 전설의 보석 +1000', 2.8);
-      const cols = ['#ffd75a','#7fe3a0','#ff8fb3','#9fd8ff'];
-      for(let i=0;i<28;i++) burst(c.x+c.w/2, c.y+6, cols[i%4], 1);
-    }
+    // 개봉은 tryAttack()의 openChestIfNear()가 담당 (탄약 없는 권총으로도 열 수 있게)
   }
   else {
     c.openT += dt;
@@ -1776,7 +1782,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.29]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.30]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1828,7 +1834,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.29 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.30 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
