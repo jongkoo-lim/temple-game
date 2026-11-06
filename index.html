@@ -87,11 +87,11 @@ const ARENAR = 198;                       // 어레나 오른쪽 끝 컬럼
 // 채찍 강화 아이템 / 안내 토스트
 let whipItems = [];
 let toast = null, toastT = 0;
-// 보물 상자 : 보스 누적 클리어 5회부터 쓰러진 자리에서 솟아오르는 특별 보상
+// 보물 상자 : 보스를 처치하면(1회부터) 쓰러진 자리에서 솟아오르는 특별 보상
 let chest = null;
 let totalClears = 0;
 try{ totalClears = parseInt(localStorage.getItem('templeClears')||'0')||0; }catch(e){}
-const CHEST_CLEAR_REQ = 5;
+const CHEST_CLEAR_REQ = 1;   // 첫 처치부터 상자 등장
 function showToast(msg, dur){ toast = msg; toastT = dur||1.6; }
 let checkpoint = { x: 64, y: 460 };
 let cpAdv1 = false, cpAdv2 = false;
@@ -429,7 +429,8 @@ function spawnEnemies(){
   spawnGuard(23, 16, 'jump');    // 저지대 점퍼
   spawnGuard(46, 11, 'charge');  // 고지대 입구 차저
   spawnGuard(52, 11, 'walk');    // 칼날 지대 가드
-  spawnGuard(75, 11, 'walk');    // 보석 탑 근처
+  spawnGuard(79, 11, 'walk');    // 보석 탑~구덩이2 사이 (디딤돌 내부 스폰 시 벽과 겹쳐
+                                 //  매 프레임 방향전환하는 깜빡임 버그 → col79로 이동)
   spawnGuard(99, 11, 'jump');    // 구덩이2 뒤 복도 점퍼
   spawnGuard(129, 11, 'walk');   // 유적 디딤돌 근처
   spawnGuard(146, 11, 'jump');   // 가시 지대 점퍼
@@ -927,7 +928,7 @@ function updateBoss(dt, s, active){
       b.hitFx=0.1;
       if(b.deadT<=0){
         if(totalClears >= CHEST_CLEAR_REQ && !chest){
-          // 누적 5회 이상 클리어 : 쓰러진 자리에서 보물 상자가 솟아오른다!
+          // 보스 처치 : 쓰러진 자리에서 보물 상자가 솟아오른다! (첫 처치부터)
           chest = { x: Math.max(ARENAL*TILE+16, Math.min(boss.x+boss.w/2-18, 196*TILE-16)),
                     w:36, h:30, rise:0, risen:false, opened:false, openT:0 };
           showToast('신전의 바닥이 흔들린다… 무언가 올라온다!', 2.4);
@@ -1037,7 +1038,7 @@ function bossDeadInit(){
   boss.state='dead'; boss.deadFall=0;                 // 쓰러지는 모션 진행도
   boss.vx = -boss.f*2.2; boss.vy = -3.5;              // 뒤로 밀려나며 공중으로 살짝 뜸
   boss.onGround = false;
-  // 누적 클리어 횟수 기록 (브라우저에 저장) - 5회부터 특별 보상
+  // 누적 클리어 횟수 기록 (브라우저에 저장)
   totalClears++;
   try{ localStorage.setItem('templeClears', String(totalClears)); }catch(e){}
   for(let i=0;i<40;i++)
@@ -1775,7 +1776,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.26]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.27]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1819,18 +1820,15 @@ function drawMenu(){
   ctx.fillText('← → 이동  ·  Space 점프  ·  J/X 채찍  ·  Enter 시작', W/2, 340);
   ctx.fillStyle='#caa86a'; ctx.font='14px sans-serif';
   ctx.fillText('[ 팁 ] 블록을 밀어 스위치에 올리면 철창이 열립니다.', W/2, 392);
-  ctx.fillStyle = totalClears >= CHEST_CLEAR_REQ ? '#ffe29a' : '#b99a6a';
-  ctx.font='14px sans-serif';
-  ctx.fillText('[ 누적 클리어 '+totalClears+'회 ] '+(totalClears>=CHEST_CLEAR_REQ
-    ? '보스를 쓰러뜨리면 숨겨진 보물 상자가…!'
-    : CHEST_CLEAR_REQ+'회 이상 클리어 시 특별한 보물이 나타납니다…'), W/2, 418);
+  ctx.fillStyle='#ffe29a'; ctx.font='14px sans-serif';
+  ctx.fillText('[ 누적 클리어 '+totalClears+'회 ] 보스를 쓰러뜨리면 숨겨진 보물 상자가 나타납니다!', W/2, 418);
   const pulse = Math.floor(performance.now()/500)%2===0;
   ctx.fillStyle = pulse? '#fff' : '#ffd95a';
   ctx.font='bold 24px sans-serif';
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.26 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.27 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
