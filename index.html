@@ -61,6 +61,7 @@ function sfx(type){
     else if(type==='boss'){ f=70; dur=0.5; vol=0.22; }
     else if(type==='door'){ f=110; dur=0.7; vol=0.16; }
     else if(type==='slam'){ f=55; dur=0.3; vol=0.26; }
+    else if(type==='shoot'){ f=520; dur=0.07; vol=0.2; }
     else if(type==='clear'){ f=520; dur=0.6; vol=0.22; }
     o.type = 'sawtooth';
     o.frequency.value = f;
@@ -73,6 +74,7 @@ function sfx(type){
 // ---------- 레벨 데이터 ----------
 let level = [];           // 2D array [row][col]
 let enemies = [], platforms = [], blocks = [], gemsList = [], particles = [], blades = [];
+let bullets = [], pistolItems = [], heartsList = [];
 let boss = null;
 let gateOpen = false, bossActive = false, bossDead = false;
 // 보스 아레나 : 신전의 문 + 진입/잠금 컷신
@@ -206,7 +208,8 @@ const p = {
   facing:1, speed:3.4, jumpV:11.6,
   hp:5, maxHp:5, hurtInv:0, coyote:0, jumpBuf:0,
   attack:0, attackT:0, whipCd:0, hitSet:new Set(),
-  onPlate:false, climbing:false, crouch:false, whipLv:1
+  onPlate:false, climbing:false, crouch:false, whipLv:1,
+  weapon:'whip', pistolLv:1, ammo:0, maxAmmo:0, reloadT:0
 };
 
 function resetPlayer(){
@@ -219,10 +222,32 @@ function respawn(){
   p.x = checkpoint.x; p.y = checkpoint.y; p.vx=0; p.vy=0; p.hurtInv=1.5;
 }
 
+function tryAttack(){
+  // 현재 장착 무기에 따라 분기: 권총을 먹으면 채찍은 사용 불가 (그 반대도)
+  if(p.weapon==='pistol') tryShoot();
+  else tryWhip();
+}
 function tryWhip(){
+  if(p.weapon!=='whip') return;   // 권총 장착 중엔 채찍 사용 불가
   if(p.attack>0 || p.whipCd>0) return;
   p.attack = 0.28; p.attackT = 0; p.hitSet = new Set();
   sfx('whip');
+}
+function tryShoot(){
+  if(p.weapon!=='pistol') return;
+  if(p.attack>0 || p.whipCd>0) return;
+  if(p.ammo<=0){ sfx('block'); showToast('탄약이 없다… (장전 중)', 1.0); return; }
+  p.ammo--;
+  p.attack = 0.18; p.attackT = 0; p.hitSet = new Set();
+  sfx('shoot');
+  // 권총 레벨이 오르면 사거리(길이)가 길어짐
+  const maxDist = 280 + (p.pistolLv-1)*70;
+  bullets.push({
+    x: p.facing>0 ? p.x+p.w+4 : p.x-4,
+    y: p.y+20, vx: p.facing*11, vy: 0,
+    dist:0, maxDist
+  });
+  burst(p.x+p.w/2 + p.facing*22, p.y+20, '#ffd75a', 4);   // 머즐 화염 파티클
 }
 function whipLen(){ return 62 + (p.whipLv-1)*11; }   // 채찍 아이템을 먹을수록 길어짐
 function whipHitbox(){
@@ -307,20 +332,27 @@ function buildLevel(){
   set(13,14,'g'); set(49,9,'g'); set(61,9,'g');
   set(104,9,'g');
 
-  // 채찍 강화 아이템('w') - 먹을수록 채찍 범위가 누적 증가
-  set(16,14,'w');                 // 저지대
-  set(43,9,'w');                  // 사다리 오른쪽 고지대
+  // 무기 아이템 - 채찍('w')과 권총('p')은 서로 교체/강화
+  set(16,14,'w');                 // 저지대 (채찍 Lv업)
+  set(43,9,'p');                  // 사다리 뒤 고지대 → 첫 권총
   set(69,9,'w');                  // 구덩이1 위 (발판에서 점프)
-  set(74,8,'w');                  // 디딤돌 위
-  set(117,9,'w');                 // 구덩이3 위 (발판에서 점프)
-  set(128,8,'w');                 // 유적 디딤돌 위
-  set(139,6,'w');                 // 높은 평탄 위
-  set(154,3,'w');                 // 사다리 타워 꼭대기
+  set(74,8,'p');                  // 디딤돌 위 → 권총
+  set(117,9,'p');                 // 구덩이3 위 (발판에서 점프)
+  set(128,8,'w');                 // 유적 디딤돌 위 → 채찍
+  set(139,6,'p');                 // 높은 평탄 위 → 권총
+  set(154,3,'w');                 // 사다리 타워 꼭대기 → 채찍
+
+  // 하트('h') - 목숨 1 회복
+  set(47,9,'h');                  // 고지대 초입
+  set(100,9,'h');                 // 구덩이2 뒤 복도
+  set(126,9,'h');                 // 유적 시작
+  set(158,9,'h');                 // 신전 문 앞
 
   level = g;
 
   // --- 스폰 ---
   enemies.length=0; platforms.length=0; blocks.length=0; gemsList.length=0; particles.length=0; blades.length=0;
+  bullets.length=0; pistolItems.length=0; heartsList.length=0;
   boss=null; gateOpen=false; bossActive=false; bossDead=false;
   doorOpen=false; doorLift=0; cutscene=0; csT=0;
 
@@ -376,7 +408,7 @@ function spawnFlyer(col, row){
 window.addEventListener('keydown', e=>{
   keys[e.code] = true;
   if(e.code==='Space'||e.code==='ArrowUp'||e.code==='KeyW') p.jumpBuf = 0.12;
-  if((e.code==='KeyJ'||e.code==='KeyX')) tryWhip();
+  if((e.code==='KeyJ'||e.code==='KeyX')) tryAttack();
   if(e.repeat) return;
   if(e.code==='Enter'){
     if(state==='menu') startGame();
@@ -386,7 +418,7 @@ window.addEventListener('keydown', e=>{
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
 });
 window.addEventListener('keyup', e=>{ keys[e.code]=false; });
-cv.addEventListener('mousedown', ()=>{ tryWhip(); });
+  cv.addEventListener('mousedown', ()=>{ tryAttack(); });
 cv.addEventListener('contextmenu', e=>e.preventDefault());
 
 // ---------- 게임 제어 ----------
@@ -394,7 +426,8 @@ function startGame(){
   buildLevel();
   collectGemsFromGrid();
   resetPlayer();
-  p.whipLv = 1;                 // 새 게임마다 채찍 레벨 초기화
+  p.whipLv = 1;                  // 새 게임마다 무기 상태 초기화
+  p.weapon='whip'; p.pistolLv=1; p.ammo=0; p.maxAmmo=0; p.reloadT=0;
   deadInitDone = false;
   score=0; gems=0; state='play'; startTime=performance.now();
   camX = Math.max(0, Math.min(p.x-W/2, COLS*TILE-W));
@@ -416,6 +449,12 @@ function update(dt){
     updateCutscene(dt);
     if(boss && !bossDead) updateBoss(dt, s, bossActive);
     updateGems();
+    updateBullets(dt, s);
+    // 권총 탄약 서서히 장전 (탄창이 비면 완전히 막히지 않게)
+    if(p.weapon==='pistol' && p.ammo < p.maxAmmo){
+      p.reloadT += dt;
+      if(p.reloadT >= 5){ p.reloadT = 0; p.ammo++; }
+    } else p.reloadT = 0;
     updateParticles(dt);
     updateCam();
   }else if(state==='clear'){
@@ -537,8 +576,8 @@ function updatePlayer(dt, s){
   if(!cpAdv1 && p.x > 72*TILE){ cpAdv1 = true; checkpoint = {x: 75*TILE, y: 11*TILE-46}; }
   if(!cpAdv2 && p.x > 126*TILE){ cpAdv2 = true; checkpoint = {x: 129*TILE, y: 11*TILE-46}; }
 
-  // 채찍 적중 처리
-  if(p.attack>0){
+  // 채찍 적중 처리 (권총 장착 중엔 채찍 판정 없음 - 발사는 updateBullets가 처리)
+  if(p.attack>0 && p.weapon==='whip'){
     const hb = whipHitbox();
     for(const e of enemies){
       if(overlap(hb, e) && !p.hitSet.has(e)){
@@ -732,15 +771,85 @@ function updateGems(){
     const g=gemsList[i];
     if(overlap(p,g)){ score+=50; gems++; sfx('gem'); burst(g.x+8,g.y+8,'#ffe36b',10); gemsList.splice(i,1); }
   }
-  // 채찍 강화 아이템: 먹을수록 채찍 범위가 누적되어 길어짐
+  // 채찍 아이템: 이미 채찍이면 레벨업, 권총이었다면 교체(채찍은 Lv.1부터 재시작)
   for(let i=whipItems.length-1;i>=0;i--){
     const w=whipItems[i];
     if(overlap(p,w)){
-      p.whipLv = Math.min(8, p.whipLv+1);
+      if(p.weapon!=='whip'){
+        p.weapon='whip'; p.whipLv=1;
+        showToast('채찍으로 교체! Lv.1 (권총 사용 불가)', 2.0);
+      } else {
+        p.whipLv = Math.min(8, p.whipLv+1);
+        showToast('채찍이 길어졌다! Lv.'+p.whipLv, 1.6);
+      }
       score+=100; sfx('gem'); burst(w.x+10,w.y+10,'#c9a15a',12);
-      showToast('채찍이 길어졌다! Lv.'+p.whipLv, 1.6);
       whipItems.splice(i,1);
     }
+  }
+  // 권총 아이템: 채찍이었다면 교체(채찍 사용 불가), 권총이면 레벨업+탄창 +1
+  for(let i=pistolItems.length-1;i>=0;i--){
+    const it=pistolItems[i];
+    if(overlap(p,it)){
+      if(p.weapon!=='pistol'){
+        p.weapon='pistol'; p.pistolLv=1; p.maxAmmo=2; p.ammo=2; p.reloadT=0;
+        showToast('권총 획득! Lv.1 (채찍 사용 불가)', 2.0);
+      } else {
+        p.pistolLv = Math.min(8, p.pistolLv+1);
+        p.maxAmmo++; p.ammo = p.maxAmmo;
+        showToast('권총 강화! Lv.'+p.pistolLv+' (탄환 +1, 사거리 증가)', 1.8);
+      }
+      score+=100; sfx('gem'); burst(it.x+10,it.y+10,'#9fb3c0',12);
+      pistolItems.splice(i,1);
+    }
+  }
+  // 하트: 목숨 1 회복 (가득일 땐 남겨둠)
+  for(let i=heartsList.length-1;i>=0;i--){
+    const h=heartsList[i];
+    if(overlap(p,h) && p.hp < p.maxHp){
+      p.hp++;
+      showToast('목숨 회복! (HP '+p.hp+'/'+p.maxHp+')', 1.4);
+      sfx('gem'); burst(h.x+10,h.y+10,'#e5453a',12);
+      heartsList.splice(i,1);
+    }
+  }
+}
+function updateBullets(dt, s){
+  // 권총 탄환: 직진 → 사거리 소진/벽/적중 시 사라짐 (관통 없음)
+  for(let i=bullets.length-1;i>=0;i--){
+    const bl = bullets[i];
+    bl.x += bl.vx*s; bl.y += bl.vy*s;
+    bl.dist += Math.abs(bl.vx*s);
+    let dead = false;
+    // 사거리(레벨이 오르면 길어짐)
+    if(bl.dist > bl.maxDist) dead = true;
+    // 벽에 맞으면 튕겨 사라짐
+    const c = Math.floor((bl.x + (bl.vx>0?3:-3))/TILE), r = Math.floor(bl.y/TILE);
+    if(!dead && isSolidAt(c,r)){ burst(bl.x, bl.y, '#cfc8b0', 5); dead = true; }
+    // 적 명중: 피를 튀기며 탄환은 소멸 (뚫고 지나가지 않음)
+    if(!dead){
+      const hb = { x:bl.x-3, y:bl.y-3, w:6, h:6 };
+      for(const e of enemies){
+        if(overlap(hb, e)){
+          e.hp--; sfx('hit');
+          e.vx = bl.vx>0 ? 4.5 : -4.5; e.vy = -3;
+          burst(e.x+e.w/2, e.y+e.h/2, '#a80f0a', 12);   // 피
+          if(e.hp<=0){ burst(e.x+e.w/2, e.y+10, '#d44', 16); }
+          dead = true; break;
+        }
+      }
+    }
+    // 보스 명중: 역시 피 + 비관통
+    if(!dead && boss && !bossDead && boss.hitCd<=0){
+      const hb = { x:bl.x-3, y:bl.y-3, w:6, h:6 };
+      if(overlap(hb, boss)){
+        boss.hp--; boss.hitCd = 0.55; boss.hitFx = 0.15;
+        sfx('hit'); shake = 6;
+        burst(bl.x, bl.y, '#a80f0a', 12);
+        if(boss.hp<=0){ bossDead = true; bossDeadInit(); }
+        dead = true;
+      }
+    }
+    if(dead) bullets.splice(i,1);
   }
 }
 function updateParticles(dt){
@@ -869,7 +978,7 @@ function resetBossFlags(){ deadInitDone=false; }
 
 // ---------- 파서: 수집품 그리드->리스트 ----------
 function collectGemsFromGrid(){
-  gemsList.length = 0; whipItems.length = 0;
+  gemsList.length = 0; whipItems.length = 0; pistolItems.length = 0; heartsList.length = 0;
   for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
     if(level[r][c]==='g'){
       gemsList.push({ x:c*TILE+6, y:r*TILE+4, w:20, h:24, t:0 });
@@ -877,6 +986,14 @@ function collectGemsFromGrid(){
     else if(level[r][c]==='w'){
       // 채찍 강화 아이템 (먹으면 채찍 범위가 누적 증가)
       whipItems.push({ x:c*TILE+6, y:r*TILE+4, w:20, h:24, t:0 });
+    }
+    else if(level[r][c]==='p'){
+      // 권총 아이템 (먹으면 무기 교체 / 레벨업+탄환 추가)
+      pistolItems.push({ x:c*TILE+6, y:r*TILE+4, w:20, h:24, t:0 });
+    }
+    else if(level[r][c]==='h'){
+      // 하트 (목숨 1 회복)
+      heartsList.push({ x:c*TILE+6, y:r*TILE+4, w:20, h:24, t:0 });
     }
   }
 }
@@ -897,6 +1014,10 @@ function render(){
   // 수집품
   for(const g of gemsList){ g.t+=0.12; drawGem(g); }
   for(const w of whipItems){ w.t+=0.12; drawWhipItem(w); }
+  for(const it of pistolItems){ it.t+=0.12; drawPistolItem(it); }
+  for(const h of heartsList){ h.t+=0.12; drawHeartItem(h); }
+  // 탄환
+  for(const bl of bullets) drawBullet(bl);
 
   // 이동발판
   for(const pl of platforms) drawPlatform(pl);
@@ -1084,6 +1205,41 @@ function drawWhipItem(w){
   ctx.fillStyle='#4a3218'; ctx.fillRect(4,-9,3,7);
   ctx.fillStyle='#d9b23a'; ctx.fillRect(3,-10,5,2);
   ctx.restore();
+}
+function drawPistolItem(it){
+  // 권총 아이템 (먹으면 무기가 권총으로 교체/강화)
+  ctx.save(); ctx.translate(it.x - camX + 10, it.y + 12 + Math.sin(it.t*2)*2);
+  ctx.rotate(Math.sin(it.t)*0.12);
+  ctx.fillStyle='#3a3a42'; ctx.fillRect(-10,-3, 18, 5);      // 총신
+  ctx.fillStyle='#20232a'; ctx.fillRect(5,-4, 5, 7);         // muzzle
+  ctx.fillStyle='#5a4a2a'; ctx.fillRect(-8,2, 6, 8);         // 손잡이
+  ctx.fillStyle='#9fb3c0'; ctx.fillRect(-11,-2, 4, 3);       // 조준점
+  ctx.restore();
+}
+function drawHeartItem(h){
+  // 하트 (목숨 1 회복)
+  ctx.save(); ctx.translate(h.x - camX + 10, h.y + 12 + Math.sin(h.t*2.5)*2.5);
+  const s = 1 + Math.sin(h.t*3)*0.06;
+  ctx.scale(s,s);
+  ctx.fillStyle='#e5453a';
+  ctx.beginPath();
+  ctx.moveTo(0, 8);
+  ctx.bezierCurveTo(-11, 0, -8, -9, 0, -4);
+  ctx.bezierCurveTo(8, -9, 11, 0, 0, 8);
+  ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,0.5)';
+  ctx.beginPath(); ctx.arc(-3,-3,1.8,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+function drawBullet(bl){
+  const x = bl.x-camX;
+  // 탄환 (잔상 + 탄심)
+  ctx.strokeStyle='rgba(255,230,150,0.4)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(x - Math.sign(bl.vx)*12, bl.y); ctx.lineTo(x, bl.y); ctx.stroke();
+  ctx.fillStyle='#ffe9a0';
+  ctx.fillRect(x-3, bl.y-1.5, 6, 3);
+  ctx.fillStyle='#fff';
+  ctx.fillRect(x-1, bl.y-1, 3, 2);
 }
 function drawBlade(bd){
   const x = bd.x - camX;
@@ -1304,8 +1460,12 @@ function drawPlayer(){
   ctx.fillStyle='#7a5a2a'; ctx.fillRect(7,14,20,7);
   // 셔츠 위 갈색 허리
   ctx.fillStyle='#4a3218'; ctx.fillRect(7,30,20,4);
-  // 벨트 + 채찍 수납(공격중 아님일 때 허리 오른쪽에 고리)
-  if(p.attack<=0){
+  // 벨트 + 무기 표시 (채찍: 허리 고리 / 권총: 손에 들기)
+  if(p.weapon==='pistol'){
+    ctx.fillStyle='#3a3a42'; ctx.fillRect(22,18,11,4);   // 총신
+    ctx.fillStyle='#20232a'; ctx.fillRect(31,17,3,4);    // muzzle
+    ctx.fillStyle='#5a4a2a'; ctx.fillRect(22,21,5,6);    // 손잡이
+  } else if(p.attack<=0){
     // 채찍 헤르메스
     ctx.strokeStyle='#5a3a15'; ctx.lineWidth=2;
     ctx.beginPath(); ctx.arc(24,29,4,0,Math.PI*2); ctx.stroke();
@@ -1326,14 +1486,24 @@ function drawPlayer(){
   ctx.fillStyle='#5a4a27';
   ctx.beginPath(); ctx.arc(17,3,4,0,Math.PI); ctx.fill();
 
-  // 채찍 휘두르기 시각효과
+  // 공격 시각효과 (무기별: 채찍 스윙 / 권총 머즐 플래시)
   if(p.attack>0){
     const t = p.attackT;
-    drawWhipSwing(28, 20, t);
+    if(p.weapon==='pistol') drawMuzzleFlash(32, 20, t);
+    else drawWhipSwing(28, 20, t);
   }
   ctx.restore();
 }
 
+function drawMuzzleFlash(ox, oy, t){
+  // 권총 발사 화염 (t: 0→0.18)
+  const k = 1 - Math.min(1, t/0.18);
+  if(k<=0) return;
+  ctx.fillStyle='rgba(255,220,120,'+(0.35+0.45*k)+')';
+  ctx.beginPath(); ctx.arc(ox+2, oy, 4+6*k, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle='rgba(255,255,200,'+(0.5*k)+')';
+  ctx.beginPath(); ctx.moveTo(ox, oy-3); ctx.lineTo(ox+14+10*k, oy); ctx.lineTo(ox, oy+3); ctx.closePath(); ctx.fill();
+}
 function drawWhipSwing(ox, oy, t){
   // t: 0→0.28 / 채찍 레벨이 오르면 길이도 함께 늘어남
   const prog = Math.min(1, t/0.28);
@@ -1391,10 +1561,23 @@ function drawHUD(){
   ctx.font='bold 15px sans-serif';
   ctx.textAlign='left';
   ctx.fillText('유물: '+score+'  (황금 '+gems+')', 14, 52);
-  // 채찍 레벨 (아이템을 먹을수록 범위 증가)
-  ctx.fillStyle='#d9b23a';
-  ctx.font='bold 13px sans-serif';
-  ctx.fillText('채찍 Lv.'+p.whipLv, 14, 88);
+  // 무기 상태 (채찍=레벨 / 권총=레벨+탄환)
+  if(p.weapon==='pistol'){
+    ctx.fillStyle='#9fb3c0'; ctx.font='bold 13px sans-serif';
+    ctx.fillText('권총 Lv.'+p.pistolLv, 14, 88);
+    for(let i=0;i<p.maxAmmo;i++){
+      ctx.fillStyle = i<p.ammo ? '#ffd75a' : '#554a2a';
+      ctx.fillRect(84+i*9, 78, 5, 11);          // 탄환 pips
+    }
+    if(p.ammo<p.maxAmmo){
+      ctx.fillStyle='#7a6a3a'; ctx.font='11px sans-serif';
+      ctx.fillText('장전중…', 84+p.maxAmmo*9+6, 88);
+    }
+  } else {
+    ctx.fillStyle='#d9b23a';
+    ctx.font='bold 13px sans-serif';
+    ctx.fillText('채찍 Lv.'+p.whipLv, 14, 88);
+  }
   // 토스트 메시지
   if(toastT>0 && toast){
     ctx.fillStyle='rgba(0,0,0,0.55)';
@@ -1410,7 +1593,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.19]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.20]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1460,7 +1643,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.19 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.20 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
