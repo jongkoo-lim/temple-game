@@ -403,7 +403,7 @@ function buildLevel(){
 
   // 보스 스폰 (해골 섬 아레나 끝쪽)
   boss = { x:185*TILE, y:11*TILE-64, w:34, h:64, vx:0, vy:0, onGround:false, f:(-1),
-    hp:20, maxHp:20, hitCd:0, state:'approach', timer:-1, atk:'slash1', hitFx:0,
+    hp:10, maxHp:10, hitCd:0, state:'approach', timer:-1, atk:'slash1', hitFx:0,
     jumpLand:false, deadT:0, phase:1, pa:0, si:0, sec:0.3, walk:0, hitWall:0 };
 }
 function makePlatform(x,y,axis){ // axis 1=수평, 0=수직 (넓고 느리게 → 탑승 난이도 완화)
@@ -1776,7 +1776,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.27]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.28]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1828,7 +1828,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.27 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.28 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
