@@ -1861,14 +1861,17 @@ function drawPlayer(){
   // 수염/얼굴 (탐험가)
   ctx.fillStyle='#8a6a3a'; ctx.fillRect(14,7,6,2);
   // 페도라 (인디아나 존스 모자) - 피격으로 벗겨졌으면 안 그림
+  //  짙은 흑갈색 + 밝은 리본으로 머리카락/배경과 강한 대비
   if(!p.hatOff){
-    ctx.fillStyle='#4a3a1e';
+    ctx.fillStyle='#2e1f0e';
     ctx.beginPath(); ctx.arc(17,7,8,0,Math.PI*2); ctx.fill();   // 챙
     ctx.fillRect(9,5,16,3);                                     // 챙 밴드 라인
-    ctx.fillStyle='#3a2c16';
-    ctx.fillRect(9,6,16,1.4);                                   // 모자 리본
-    ctx.fillStyle='#5a4a27';
-    ctx.beginPath(); ctx.arc(17,3,4,0,Math.PI); ctx.fill();     // 크라운
+    ctx.fillStyle='#c9a15c';                                    // 밝은 리본 (대비 강화)
+    ctx.fillRect(9,6,16,1.6);
+    ctx.fillStyle='#3a2a14';
+    ctx.beginPath(); ctx.arc(17,3,4.5,0,Math.PI); ctx.fill();   // 크라운
+    ctx.fillStyle='#241708';
+    ctx.beginPath(); ctx.arc(17,4,4.5,0,Math.PI*0.5); ctx.fill(); // 크라운 그늘
   }
 
   // 공격 시각효과 (무기별: 채찍 스윙 / 권총 머즐 플래시)
@@ -1945,11 +1948,11 @@ function updateHats(dt, s){
 function drawHat(h){
   const x = h.x-camX;
   ctx.save(); ctx.translate(x+8, h.y+4); ctx.rotate(h.rot);
-  ctx.fillStyle='#4a3a1e';
+  ctx.fillStyle='#2e1f0e';
   ctx.beginPath(); ctx.arc(0,0,8,0,Math.PI*2); ctx.fill();      // 챙
-  ctx.fillStyle='#3a2c16'; ctx.fillRect(-8,-1,16,1.4);          // 리본
-  ctx.fillStyle='#5a4a27';
-  ctx.beginPath(); ctx.arc(0,-2,4,0,Math.PI); ctx.fill();       // 크라운
+  ctx.fillStyle='#c9a15c'; ctx.fillRect(-8,-1,16,1.6);          // 밝은 리본
+  ctx.fillStyle='#3a2a14';
+  ctx.beginPath(); ctx.arc(0,-2,4.5,0,Math.PI); ctx.fill();     // 크라운
   ctx.restore();
 }
 
@@ -2017,7 +2020,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.38]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.39]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2108,7 +2111,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.38 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.39 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
