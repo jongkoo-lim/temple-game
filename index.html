@@ -450,10 +450,10 @@ function spawnEnemies(){
 // ---------- 입력 ----------
 window.addEventListener('keydown', e=>{
   keys[e.code] = true;
-  // 점프: Shift (좌/우 공통)
-  if(e.code==='ShiftLeft'||e.code==='ShiftRight') p.jumpBuf = 0.12;
-  // 공격: Z
-  if(e.code==='KeyZ') tryAttack();
+  // 점프: ↑ 방향키
+  if(e.code==='ArrowUp') p.jumpBuf = 0.12;
+  // 공격: Space
+  if(e.code==='Space') tryAttack();
   if(e.repeat) return;
   if(e.code==='Enter'){
     if(state==='menu') startGame();
@@ -581,8 +581,8 @@ function updatePlayer(dt, s){
   } else {
     if(!p.onGround){ p.vy += 0.55*s; if(p.vy>14) p.vy=14; }
     else { p.vy = 0; p.coyote = 0.1; }
-    // 점프 : Shift만
-    const jumpKey = keys['ShiftLeft']||keys['ShiftRight'];
+    // 점프 : ↑ 방향키
+    const jumpKey = keys['ArrowUp'];
     if(p.jumpBuf>0 && (p.onGround || p.coyote>0)){
       p.vy = -p.jumpV; p.onGround=false; p.coyote=0; p.jumpBuf=0;
       sfx('jump');
@@ -1080,7 +1080,7 @@ function updateChest(dt){
     if(c.rise>=1){
       c.rise=1; c.risen=true; sfx('slam'); shake=6;
       burst(c.x+c.w/2, 11*TILE, '#cfc8b0', 16);
-      showToast('오래된 보물 상자! 가까이서 공격(Z)으로 열어보자', 2.6);
+      showToast('오래된 보물 상자! 가까이서 공격(Space)으로 열어보자', 2.6);
     }
   }
   else if(!c.opened){
@@ -1908,7 +1908,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.33]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.34]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1946,7 +1946,7 @@ function drawPause(){
   ctx.font='16px sans-serif'; ctx.fillStyle='#e8d8b8';
   ctx.fillText('P 키를 누르면 계속합니다', W/2, H/2+8);
   ctx.font='13px sans-serif'; ctx.fillStyle='#b99a6a';
-  ctx.fillText('← → 이동 · Shift 점프 · Z 공격 · ↓ 앉기 · R 재시작', W/2, H/2+40);
+  ctx.fillText('← → 이동 · ↑ 점프 · Space 공격 · ↓ 앉기 · R 재시작', W/2, H/2+40);
 }
 function drawMenu(){
   ctx.fillStyle='rgba(0,0,0,0.62)';
@@ -1962,7 +1962,7 @@ function drawMenu(){
   ctx.fillText('채찍을 휘둘러 가드를 쓰러뜨리고 퍼즐을 풀어', W/2, 254);
   ctx.fillText('마지막 거대 야만검사를 상대하세요.', W/2, 278);
   ctx.font='16px sans-serif'; ctx.fillStyle='#ffe29a';
-  ctx.fillText('← → 이동  ·  Shift 점프  ·  Z 공격  ·  ↓ 앉기  ·  P 일시정지  ·  Enter 시작', W/2, 340);
+  ctx.fillText('← → 이동  ·  ↑ 점프  ·  Space 공격  ·  ↓ 앉기  ·  P 일시정지  ·  Enter 시작', W/2, 340);
   ctx.fillStyle='#caa86a'; ctx.font='14px sans-serif';
   ctx.fillText('[ 팁 ] 블록을 밀어 스위치에 올리면 철창이 열립니다.', W/2, 392);
   ctx.fillStyle='#ffe29a'; ctx.font='14px sans-serif';
@@ -1973,7 +1973,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.33 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.34 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
