@@ -1254,9 +1254,10 @@ function drawBackground(){
     }
   }
 
-  // ===== 횃불 (기둥 사이 벽면) =====
-  for(let i=0;i<6;i++){
-    const tx = i*180 + ((camX*0.1)%360);
+  // ===== 횃불 : 월드 좌표 고정 (레벨 벽면에 320px 간격으로 설치된 것처럼 제자리) =====
+  const tw = 320;
+  for(let i=Math.floor(camX/tw)-1, e=Math.floor((camX+W)/tw)+1; i<=e; i++){
+    const tx = i*tw + 90 - camX;
     const flick = Math.random()*4;
     const fg = ctx.createRadialGradient(tx, 208, 4, tx, 208, 95);
     fg.addColorStop(0,'rgba(255,175,55,0.18)');
@@ -1908,7 +1909,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.35]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.36]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1973,7 +1974,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.35 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.36 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
