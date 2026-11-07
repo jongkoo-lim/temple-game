@@ -43,6 +43,7 @@ let score = 0, gems = 0;
 let clearTimer = 0, overTimer = 0;
 let paused = false;                 // P 키 일시정지
 let hitstop = 0;                    // 히트스톱: 타격 순간 게임을 몇 프레임 멈춰 무게감 부여
+let hats = [];                      // 벗겨져 날아간 인디아나 존스 모자 (줍기 가능)
 let shake = 0;
 let startTime = 0;
 
@@ -222,6 +223,7 @@ const p = {
 function resetPlayer(){
   p.x = checkpoint.x; p.y = checkpoint.y; p.vx=0; p.vy=0; p.hp=5;
   p.hurtInv=1.2; p.attack=0; p.attackT=0; p.onGround=false;
+  p.hatOff = false; hats.length = 0;     // 새 게임 시작: 모자 초기화
 }
 function respawn(){
   p.hp--;
@@ -510,6 +512,7 @@ function update(dt){
     updateCutscene(dt);
     if(boss) updateBoss(dt, s, bossActive);   // 사망 후에도 쓰러짐/보물상자 시퀀스를 위해 계속 갱신
     updateChest(dt);
+    updateHats(dt, s);
     updateGems();
     updateBullets(dt, s);
     // 권총 탄약 서서히 장전 (탄창이 비면 완전히 막히지 않게)
@@ -699,6 +702,13 @@ function damagePlayer(n, kx){
   p.vx = kx*5; p.vy = -4.5;
   shake = 8; sfx('hit');
   burst(p.x+p.w/2, p.y+10, '#e55', 10);
+  // ★ 피격 시 모자가 벗겨져 날아감 (이미 벗겨진 상태면 무시)
+  if(!p.hatOff){
+    p.hatOff = true;
+    hats.push({ x:p.x+p.w/2-8, y:p.y, w:16, h:8,
+      vx:-kx*(2+Math.random()*1.5), vy:-5-Math.random()*2, onGround:false, rot:0, vr:(-kx*0.15) });
+    showToast('모자가 벗겨졌다! 주워서 다시 쓰자', 1.6);
+  }
   if(p.hp<=0){ p.hp=0; state='gameover'; overTimer=0; }
 }
 
@@ -1198,6 +1208,9 @@ function render(){
 
   // 적
   for(const e of enemies) drawEnemy(e);
+
+  // 벗겨진 모자
+  for(const h of hats) drawHat(h);
 
   // 회전 칼날
   for(const bd of blades) drawBlade(bd);
@@ -1847,12 +1860,16 @@ function drawPlayer(){
   ctx.fillStyle='#d8b58a'; ctx.beginPath(); ctx.arc(17,9,6,0,Math.PI*2); ctx.fill();
   // 수염/얼굴 (탐험가)
   ctx.fillStyle='#8a6a3a'; ctx.fillRect(14,7,6,2);
-  // 페도라
-  ctx.fillStyle='#4a3a1e';
-  ctx.beginPath(); ctx.arc(17,7,8,0,Math.PI*2); ctx.fill();
-  ctx.fillRect(9,5,16,3);
-  ctx.fillStyle='#5a4a27';
-  ctx.beginPath(); ctx.arc(17,3,4,0,Math.PI); ctx.fill();
+  // 페도라 (인디아나 존스 모자) - 피격으로 벗겨졌으면 안 그림
+  if(!p.hatOff){
+    ctx.fillStyle='#4a3a1e';
+    ctx.beginPath(); ctx.arc(17,7,8,0,Math.PI*2); ctx.fill();   // 챙
+    ctx.fillRect(9,5,16,3);                                     // 챙 밴드 라인
+    ctx.fillStyle='#3a2c16';
+    ctx.fillRect(9,6,16,1.4);                                   // 모자 리본
+    ctx.fillStyle='#5a4a27';
+    ctx.beginPath(); ctx.arc(17,3,4,0,Math.PI); ctx.fill();     // 크라운
+  }
 
   // 공격 시각효과 (무기별: 채찍 스윙 / 권총 머즐 플래시)
   if(p.attack>0){
@@ -1895,6 +1912,45 @@ function drawWhipSwing(ox, oy, t){
   const fx = ox + Math.cos(-1.15 + 1.9 - (prog*2.2))*(10+44)*sc;
   const fy = oy + Math.sin(-1.15 + 1.9 - (prog*2.2))*(10+44)*sc - prog*16;
   ctx.beginPath(); ctx.arc(fx, fy, 3, 0, Math.PI*2); ctx.fill();
+}
+
+// ★ 벗겨진 모자: 물리로 떨어져 구르고, 플레이어가 밟으면 다시 쓴다
+function updateHats(dt, s){
+  for(let i=hats.length-1;i>=0;i--){
+    const h = hats[i];
+    if(!h.onGround){
+      h.vy += 0.4*s; if(h.vy>9) h.vy=9;
+      h.y += h.vy*s; h.x += h.vx*s;
+      h.rot += h.vr;
+      // 바닥 착지 판정
+      const r = Math.floor((h.y+h.h)/TILE);
+      const c0 = Math.floor(h.x/TILE), c1 = Math.floor((h.x+h.w-1)/TILE);
+      for(let c=c0;c<=c1;c++){
+        if(isSolidAt(c,r)){ h.y = r*TILE - h.h; h.onGround = true; h.vy=0; h.vx*=0.4; h.vr*=0.3;
+          dust(h.x+8, h.y+h.h, 3, 1); break; }
+      }
+      if(h.y > ROWS*TILE+60){ hats.splice(i,1); continue; }   // 낙하산실 (구덩이로 떨어짐)
+    } else {
+      h.vx *= 0.9; h.vr *= 0.9;                                  // 굴러 멈춤
+      h.x += h.vx*s; h.rot += h.vr*s;
+    }
+    // 플레이어가 줍기 (접촉하면 다시 쓴다)
+    if(overlap(p, {x:h.x-4, y:h.y-4, w:h.w+8, h:h.h+8})){
+      p.hatOff = false; hats.splice(i,1);
+      sfx('gem'); showToast('모자 회복! 투척한 탐험가의 위엄', 1.4);
+      burst(h.x+8, h.y+4, '#d9b23a', 8);
+    }
+  }
+}
+function drawHat(h){
+  const x = h.x-camX;
+  ctx.save(); ctx.translate(x+8, h.y+4); ctx.rotate(h.rot);
+  ctx.fillStyle='#4a3a1e';
+  ctx.beginPath(); ctx.arc(0,0,8,0,Math.PI*2); ctx.fill();      // 챙
+  ctx.fillStyle='#3a2c16'; ctx.fillRect(-8,-1,16,1.4);          // 리본
+  ctx.fillStyle='#5a4a27';
+  ctx.beginPath(); ctx.arc(0,-2,4,0,Math.PI); ctx.fill();       // 크라운
+  ctx.restore();
 }
 
 // ---------- HUD ----------
@@ -1961,12 +2017,20 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.37]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.38]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
   ctx.font='13px sans-serif';
   ctx.fillText('시간 '+Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0'), W-14, 22);
+  // 조작법 (우측 하단에 은은하게 상시 표시)
+  if(state==='play'){
+    ctx.textAlign='right';
+    ctx.fillStyle='rgba(230,210,170,0.55)';
+    ctx.font='12px sans-serif';
+    ctx.fillText('← → 이동   ↑ 점프   Space 공격   ↓ 앉기', W-14, H-30);
+    ctx.fillText('P 일시정지   R 재시작', W-14, H-12);
+  }
 }
 function drawBossBar(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
@@ -2011,22 +2075,40 @@ function drawMenu(){
   ctx.font='20px serif'; ctx.fillStyle='#c9a86a';
   ctx.fillText('— 채찍의 탐험가 · Stage 1 —', W/2, 166);
   ctx.font='15px sans-serif'; ctx.fillStyle='#e8d8b8';
-  ctx.fillText('고대 신전 깊숙이. 추억의 영화(인디아나 존스풍)처럼', W/2, 230);
-  ctx.fillText('채찍을 휘둘러 가드를 쓰러뜨리고 퍼즐을 풀어', W/2, 254);
-  ctx.fillText('마지막 거대 야만검사를 상대하세요.', W/2, 278);
-  ctx.font='16px sans-serif'; ctx.fillStyle='#ffe29a';
-  ctx.fillText('← → 이동  ·  ↑ 점프  ·  Space 공격  ·  ↓ 앉기  ·  P 일시정지  ·  Enter 시작', W/2, 340);
-  ctx.fillStyle='#caa86a'; ctx.font='14px sans-serif';
-  ctx.fillText('[ 팁 ] 블록을 밀어 스위치에 올리면 철창이 열립니다.', W/2, 392);
+  ctx.fillText('고대 신전 깊숙이. 추억의 영화(인디아나 존스풍)처럼', W/2, 214);
+  ctx.fillText('채찍을 휘둘러 가드를 쓰러뜨리고 퍼즐을 풀어', W/2, 236);
+  ctx.fillText('마지막 거대 야만검사를 상대하세요.', W/2, 258);
+  // 조작법 (표 형태로 명확하게)
+  const ctrl = [
+    ['← →', '좌우 이동'],
+    ['↑', '점프 (길게 누르면 높게 / 사다리 타기)'],
+    ['Space', '공격 (채찍·권총, 상자 열기)'],
+    ['↓', '앉기 (칼날 밑 통과) / 사다리 내려가기'],
+    ['P', '일시정지'],
+    ['R', '처음부터 재시작'],
+    ['Enter', '게임 시작'],
+  ];
+  ctx.font='bold 15px sans-serif';
+  ctrl.forEach((c2, i)=>{
+    const yy = 300 + i*26;
+    ctx.textAlign='right'; ctx.fillStyle='#ffe29a';
+    ctx.fillText(c2[0], W/2-16, yy);
+    ctx.textAlign='left'; ctx.fillStyle='#e8d8b8';
+    ctx.font='15px sans-serif';
+    ctx.fillText(c2[1], W/2+10, yy);
+    ctx.font='bold 15px sans-serif';
+  });
+  ctx.fillStyle='#caa86a'; ctx.font='13px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('[ 팁 ] 블록을 밀어 스위치에 올리면 철창이 열립니다.', W/2, 496);
   ctx.fillStyle='#ffe29a'; ctx.font='14px sans-serif';
-  ctx.fillText('[ 누적 클리어 '+totalClears+'회 ] 보스를 쓰러뜨리면 숨겨진 보물 상자가 나타납니다!', W/2, 418);
+  ctx.fillText('[ 누적 클리어 '+totalClears+'회 ] 보스를 쓰러뜨리면 숨겨진 보물 상자가 나타납니다!', W/2, 520);
   const pulse = Math.floor(performance.now()/500)%2===0;
   ctx.fillStyle = pulse? '#fff' : '#ffd95a';
   ctx.font='bold 24px sans-serif';
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.37 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.38 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
