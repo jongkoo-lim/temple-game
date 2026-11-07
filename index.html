@@ -1908,7 +1908,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.34]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.35]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1973,17 +1973,16 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.34 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.35 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
   ctx.fillRect(0,0,W,H);
   ctx.textAlign='center';
   ctx.fillStyle='#ffe36b'; ctx.font='bold 46px serif';
-  ctx.fillText('신전 수복 완료!', W/2, 180);
+  ctx.fillText('미궁 탐사 완료!', W/2, 180);
   ctx.font='20px serif'; ctx.fillStyle='#c9a86a';
-  ctx.fillText('야만검사가 쓰러졌다… 황금의 심장을 챙기는 순간', W/2, 230);
-  ctx.fillText('하늘이 무너지듯 사원이 흔들린다!', W/2, 258);
+  ctx.fillText('인디아나존스의 탐험은 계속된다', W/2, 240);
   ctx.font='16px serif'; ctx.fillStyle='#ffd';
   ctx.fillText('점수: '+score+'   유물: '+gems+'개   시간: '+Math.floor((performance.now()-startTime)/1000)+'초', W/2, 310);
   ctx.font='14px sans-serif'; ctx.fillStyle='#b99a6a';
@@ -1999,15 +1998,25 @@ function drawClear(){
   ctx.fillText('ENTER → 다시 시작', W/2, 452);
 }
 function drawGameOver(){
-  ctx.fillStyle='rgba(30,0,0,0.66)';
+  // GTA풍 연출: 화면이 서서히 검게/세피아로 페이드아웃 → WASTED 떠오름
+  const t = Math.min(1, overTimer/1.2);            // 1.2초 페이드
+  ctx.fillStyle='rgba(10,4,2,'+(0.85*t)+')';
   ctx.fillRect(0,0,W,H);
   ctx.textAlign='center';
-  ctx.fillStyle='#c33'; ctx.font='bold 48px serif';
-  ctx.fillText('쓰러졌습니다', W/2, 200);
-  ctx.font='16px sans-serif'; ctx.fillStyle='#e8d8b8';
-  ctx.fillText('신전의 어둠이 당신을 집어삼켰다…', W/2, 250);
-  ctx.font='bold 22px sans-serif'; ctx.fillStyle='#ffe29a';
-  ctx.fillText('ENTER → 다시 도전', W/2, 320);
+  if(t>=1){
+    const wt = Math.min(1, (overTimer-1.2)/0.8);   // WASTED 등장 페이드인
+    ctx.globalAlpha = wt;
+    ctx.fillStyle='#7a1010'; ctx.font='bold 92px serif';
+    ctx.fillText('Wasted', W/2, H/2-10);
+    ctx.fillStyle='#c9302c'; ctx.font='bold 90px serif';
+    ctx.fillText('Wasted', W/2, H/2-12);
+    ctx.globalAlpha = wt;
+    ctx.font='16px sans-serif'; ctx.fillStyle='#e8d8b8';
+    ctx.fillText('신전의 어둠이 당신을 집어삼켰다…', W/2, H/2+46);
+    ctx.font='bold 22px sans-serif'; ctx.fillStyle='#ffe29a';
+    ctx.fillText('ENTER → 다시 도전', W/2, H/2+100);
+    ctx.globalAlpha = 1;
+  }
 }
 
 // ============================================================
