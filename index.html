@@ -42,6 +42,7 @@ let camX = 0;
 let score = 0, gems = 0;
 let clearTimer = 0, overTimer = 0;
 let paused = false;                 // P 키 일시정지
+let hitstop = 0;                    // 히트스톱: 타격 순간 게임을 몇 프레임 멈춰 무게감 부여
 let shake = 0;
 let startTime = 0;
 
@@ -278,6 +279,17 @@ function burst(x,y,color,n){
   for(let i=0;i<n;i++){
     particles.push({ x, y, vx:(Math.random()*6-3), vy:(Math.random()*6-3), life:0.5+Math.random()*0.4,
       color, s:2+Math.random()*3 });
+  }
+}
+// ★ 먼지 파티클 : 위로 살짝 올라가며 퍼지는 옅은 갈색 (점프/착지/달리기)
+//   dir=-1 점프(아래로 퍼짐), 1 착지(위로 퍼짐), 2 달리기(뒤로 살짝)
+function dust(x,y,n,dir){
+  for(let i=0;i<n;i++){
+    particles.push({
+      x: x+(Math.random()*16-8), y: y-(dir===2?1:0),
+      vx: (Math.random()*2.2-1.1) + (dir===2 ? -p.facing*(1+Math.random()) : 0),
+      vy: (dir===-1 ? Math.random()*1.6+0.4 : -(Math.random()*1.8+0.4)),
+      life: 0.3+Math.random()*0.25, color:'#8a7a5e', s:2+Math.random()*2.5, dust:true });
   }
 }
 
@@ -559,13 +571,22 @@ function updatePlayer(dt, s){
   else p.hitSet.clear();
   if(p.jumpBuf>0) p.jumpBuf-=dt;
   if(p.coyote>0) p.coyote-=dt;
+  if((p.hurtFx||0)>0) p.hurtFx-=dt;   // ★ 피격 플래시 감쇠
   const prevOn = p.onGround;
   if(cutscene>0){ p.vx=0; p.vy=0; return; }   // 컷신 중엔 조작/중력 모두(door 중간 이동 막음)
 
-  // 이동 : 방향키만
+  // 이동 : 방향키만 + 짧은 가속/감속으로 무게감 (지상 빠름/공중 느림)
+  //  단, 피격 넉백 직후(hurtInv > 0.85)엔 관성 무시 - 밀려나는 힘이 살아있게
   const dir = (keys['ArrowRight']?1:0) - (keys['ArrowLeft']?1:0);
-  p.vx = dir * p.speed;
-  if(dir!==0) p.facing = dir;
+  if(p.hurtInv > 0.85){
+    if(dir!==0) p.facing = dir;                     // 방향전환만
+  } else {
+    const target = dir * p.speed;
+    const accel = (p.onGround ? 0.32 : 0.14) * s;   // 지상 0.15s / 공중 0.25s 근처
+    if(p.vx < target) p.vx = Math.min(target, p.vx + p.speed*accel);
+    else if(p.vx > target) p.vx = Math.max(target, p.vx - p.speed*accel);
+    if(dir!==0) p.facing = dir;
+  }
 
   // 사다리 감지/상태 (= 높이 5칸 이상 벽은 ↑/↓로 직접 타고 오름)
   const onLad = onLadder(p);
@@ -586,12 +607,22 @@ function updatePlayer(dt, s){
     if(p.jumpBuf>0 && (p.onGround || p.coyote>0)){
       p.vy = -p.jumpV; p.onGround=false; p.coyote=0; p.jumpBuf=0;
       sfx('jump');
+      dust(p.x+p.w/2, p.y+p.h, 6, -1);              // ★ 점프 먼지 (아래+양옆으로)
     }
     // 가변 점프 (키 떼면 상승 중단)
     if(!jumpKey && p.vy < -4) p.vy = -4;
   }
 
   moveBody(p, s);
+  // ★ 착지 먼지 : 공중에 있다가 이번 프레임에 지면에 앉음 (+낙하 속도 비례)
+  if(!prevOn && p.onGround && p.vy >= 0){
+    dust(p.x+p.w/2, p.y+p.h, Math.min(10, 4 + Math.floor(-p._lastVy/3)), 1);
+  }
+  p._lastVy = p.vy;
+  // ★ 달리기 먼지 : 지상에서 빠르게 이동 중 가끔 발밑에서
+  if(p.onGround && Math.abs(p.vx) > 2.4 && !p.crouch){
+    if(Math.random() < 0.3) dust(p.x+p.w/2-p.facing*8, p.y+p.h, 1, 2);
+  }
   // 사다리를 벗어났거나(이동), 착지했으면 사다리 상태 해제
   if(p.climbing && (!onLadder(p) || p.onGround)) p.climbing = false;
 
@@ -633,15 +664,21 @@ function updatePlayer(dt, s){
       if(overlap(hb, e) && !p.hitSet.has(e)){
         p.hitSet.add(e);
         e.hp--; sfx('hit');
+        hitstop = 0.05;                                  // ★ 히트스톱: 타격이 꽂히는 무게감
         e.vx = p.facing*4.5; e.vy = -4;
         burst(e.x+e.w/2, e.y+e.h/2, '#ffe9a0', 10);
-        if(e.hp<=0){ burst(e.x+e.w/2, e.y+10, '#d44', 16); }
+        if(e.hp<=0){
+          // ★ 처치 넉백: 뒤로 날아가며 산산조각
+          e.vx = p.facing*7; e.vy = -6.5;
+          burst(e.x+e.w/2, e.y+10, '#d44', 16);
+        }
       }
     }
     if(boss && !bossDead && boss.hitCd<=0 && overlap(hb, boss)){
       p.hitSet.add('boss');
       boss.hp--; boss.hitCd = 0.55; boss.hitFx = 0.15;
       sfx('hit');
+      hitstop = 0.06;                                    // ★ 보스는 조금 더 묵직하게
       burst(boss.x+boss.w/2, boss.y+10, '#ffdf6b', 14);
       shake = 6;
       if(boss.hp<=0){ bossDead = true; bossDeadInit(); }
@@ -658,6 +695,7 @@ function onHazard(b){
 }
 function damagePlayer(n, kx){
   p.hp -= n; p.hurtInv = 1.2;
+  p.hurtFx = 0.12;                  // ★ 피격 직후 짧게 흰색 플래시
   p.vx = kx*5; p.vy = -4.5;
   shake = 8; sfx('hit');
   burst(p.x+p.w/2, p.y+10, '#e55', 10);
@@ -881,9 +919,13 @@ function updateBullets(dt, s){
       for(const e of enemies){
         if(overlap(hb, e)){
           e.hp--; sfx('hit');
+          hitstop = 0.04;                              // ★ 히트스톱
           e.vx = bl.vx>0 ? 4.5 : -4.5; e.vy = -3;
           burst(e.x+e.w/2, e.y+e.h/2, '#a80f0a', 12);   // 피
-          if(e.hp<=0){ burst(e.x+e.w/2, e.y+10, '#d44', 16); }
+          if(e.hp<=0){
+            e.vx = bl.vx>0 ? 7 : -7; e.vy = -6.5;      // ★ 처치 넉백
+            burst(e.x+e.w/2, e.y+10, '#d44', 16);
+          }
           dead = true; break;
         }
       }
@@ -894,6 +936,7 @@ function updateBullets(dt, s){
       if(overlap(hb, boss)){
         boss.hp--; boss.hitCd = 0.55; boss.hitFx = 0.15;
         sfx('hit'); shake = 6;
+        hitstop = 0.05;                                 // ★ 히트스톱
         burst(bl.x, bl.y, '#a80f0a', 12);
         if(boss.hp<=0){ bossDead = true; bossDeadInit(); }
         dead = true;
@@ -905,7 +948,12 @@ function updateBullets(dt, s){
 function updateParticles(dt){
   for(let i=particles.length-1;i>=0;i--){
     const pt=particles[i];
-    pt.life-=dt; pt.x+=pt.vx; pt.y+=pt.vy; pt.vy+=0.25; pt.vx*=0.98; pt.vy*=0.98;
+    pt.life-=dt;
+    if(pt.dust){                                    // 먼지: 중력 없이 퍼지며 잦아듦
+      pt.x+=pt.vx; pt.y+=pt.vy; pt.vx*=0.94; pt.vy*=0.94;
+    } else {
+      pt.x+=pt.vx; pt.y+=pt.vy; pt.vy+=0.25; pt.vx*=0.98; pt.vy*=0.98;
+    }
     if(pt.life<=0) particles.splice(i,1);
   }
 }
@@ -1758,6 +1806,10 @@ function drawPlayer(){
   const hurt = p.hurtInv>0 && Math.floor(p.hurtInv*20)%2===0;
   ctx.globalAlpha = hurt? 0.5 : 1;
   ctx.scale(face,1);
+  // ★ 피격 직후 짧은 흰색 플래시 (밝기 증폭으로 실루엣만 빛남)
+  if((p.hurtFx||0) > 0){
+    try{ ctx.filter = 'brightness(3) saturate(0.4)'; }catch(e){}
+  }
   // 앉으면 발끝 기준으로 세로로 압축 → 낮은 자세 (칼날 밑 통과)
   if(p.crouch) ctx.scale(1, p.h/49);
   // 다리 (걷기: 좌우가 번갈아 앞뒤로 휘두르며 발이 움직임)
@@ -1909,7 +1961,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.36]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.37]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1974,7 +2026,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.36 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.37 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
@@ -2029,6 +2081,7 @@ function loop(now){
   let dt = (now-last)/1000; last = now;
   if(dt>0.05) dt = 0.05;
   if(paused && state==='play'){ render(); return; }   // 일시정지: 갱신 생략, 화면 유지
+  if(hitstop>0){ hitstop -= dt; render(); return; }   // 히트스톱: 몇 프레임 정지 (렌더는 유지)
   if(state==='play') update(dt);
   else if(state==='clear' || state==='gameover') update(dt);
   render();
