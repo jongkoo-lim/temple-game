@@ -1184,29 +1184,147 @@ function render(){
   }
 }
 
+// 배경용 결정론적 난수 : 프레임마다 값이 흔들리지 않아 배경이 깜빡이지 않음
+function bhash(n){ const x = Math.sin(n*127.1)*43758.5453; return x - Math.floor(x); }
+
 function drawBackground(){
-  // 어두운 석벽 배경
+  // 어두운 신전 그라데이션
   const grad = ctx.createLinearGradient(0,0,0,H);
-  grad.addColorStop(0,'#17110c');
-  grad.addColorStop(0.6,'#221811');
-  grad.addColorStop(1,'#0e0a07');
+  grad.addColorStop(0,'#141009');
+  grad.addColorStop(0.55,'#1e150d');
+  grad.addColorStop(1,'#0d0906');
   ctx.fillStyle=grad; ctx.fillRect(0,0,W,H);
-  // 석벽 패턴
-  ctx.globalAlpha=0.18;
+
+  // ===== [원경] 고대 벽화/문양 패널 (parallax 0.25, 매우 옅게) =====
+  const px = camX*0.25, panW = 240;
+  for(let i=Math.floor(px/panW)-1, e=Math.floor((px+W)/panW)+1; i<=e; i++){
+    const x = i*panW - px, hv = bhash(i*7+3);
+    ctx.strokeStyle='rgba(160,125,72,0.10)'; ctx.lineWidth=2;
+    ctx.strokeRect(x+34, 132, panW-68, 188);                  // 패널 테두리
+    ctx.strokeStyle='rgba(160,125,72,0.15)'; ctx.lineWidth=1.5;
+    if(hv<0.55){                                              // 태양 문양
+      const cx=x+panW/2, cy=226;
+      ctx.beginPath(); ctx.arc(cx,cy,25,0,Math.PI*2); ctx.stroke();
+      for(let k=0;k<8;k++){ const a=k*Math.PI/4;
+        ctx.beginPath(); ctx.moveTo(cx+Math.cos(a)*31, cy+Math.sin(a)*31);
+        ctx.lineTo(cx+Math.cos(a)*43, cy+Math.sin(a)*43); ctx.stroke(); }
+    } else {                                                  // 거대 눈 문양
+      const cx=x+panW/2, cy=222;
+      ctx.beginPath(); ctx.ellipse(cx,cy,32,18,0,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx,cy,8,0,Math.PI*2); ctx.stroke();
+    }
+    ctx.beginPath();                                          // 지그재그 띠
+    for(let z=0;z<6;z++){ const zx=x+44+z*((panW-88)/6), zy=160+(z%2?13:0);
+      z===0?ctx.moveTo(zx,zy):ctx.lineTo(zx,zy); }
+    ctx.stroke();
+    ctx.fillStyle='rgba(160,125,72,0.14)';                    // 점 문양줄
+    for(let d=0;d<8;d++) ctx.fillRect(x+48+d*17, 294, 4, 4);
+  }
+
+  // ===== [원경] 석재 줄눈 패턴 (은은하게, 결정론적) =====
+  ctx.globalAlpha=0.10;
   for(let x=-64;x<W+64;x+=64){
-    const ox = ((x%256)+256)%256;
-    ctx.fillStyle = (Math.floor((x/64)+ (Math.random()*0.4-0.2)))%2 ? '#2a1f14':'#20160d';
-    ctx.fillRect(x+((camX*0.2)%64), 0, 63, H);
+    ctx.fillStyle = Math.floor((x+px)/64)%2 ? '#3a2c1a' : '#2c2113';
+    ctx.fillRect(x-(px%64), 0, 63, H);
   }
   ctx.globalAlpha=1;
-  // 토치 불빛
+
+  // ===== [중경] 기둥 (parallax 0.42) : 멀쩡/무너진 기둥 + 덩굴 + 거미줄 =====
+  const p2x = camX*0.42, gap = 300;
+  for(let i=Math.floor(p2x/gap)-1, e=Math.floor((p2x+W)/gap)+1; i<=e; i++){
+    const hv = bhash(i*13+11);
+    drawBgPillar(i*gap + hv*36 - p2x, hv, i);
+  }
+
+  // ===== [중경] 천장에서 드리운 덩굴 + 천장 거미줄 =====
+  const vgap = 150;
+  for(let i=Math.floor(p2x/vgap)-1, e=Math.floor((p2x+W)/vgap)+1; i<=e; i++){
+    const hv = bhash(i*29+5);
+    const x = i*vgap + hv*60 - p2x;
+    if(hv<0.3){ drawWeb(x+10, 4, 24+hv*70); continue; }       // 드문 천장 거미줄
+    const len = 40 + hv*110;
+    ctx.strokeStyle='rgba(38,52,28,0.7)'; ctx.lineWidth=2.5; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(x,0);
+    ctx.bezierCurveTo(x+8, len*0.4, x-8, len*0.7, x+4, len);
+    ctx.stroke();
+    ctx.fillStyle='rgba(44,60,30,0.55)';                      // 잎
+    for(let L=0;L<3;L++){
+      const ly=len*(0.35+L*0.25);
+      ctx.beginPath(); ctx.ellipse(x+(L%2?7:-5), ly, 5, 3, (L%2?0.6:-0.6), 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  // ===== 횃불 (기둥 사이 벽면) =====
   for(let i=0;i<6;i++){
     const tx = i*180 + ((camX*0.1)%360);
     const flick = Math.random()*4;
-    const fg = ctx.createRadialGradient(tx, 200+flick*0, 4, tx, 200, 90);
-    fg.addColorStop(0,'rgba(255,180,60,0.16)');
-    fg.addColorStop(1,'rgba(255,180,60,0)');
-    ctx.fillStyle=fg; ctx.fillRect(tx-90, 110, 180, 180);
+    const fg = ctx.createRadialGradient(tx, 208, 4, tx, 208, 95);
+    fg.addColorStop(0,'rgba(255,175,55,0.18)');
+    fg.addColorStop(1,'rgba(255,175,55,0)');
+    ctx.fillStyle=fg; ctx.fillRect(tx-95, 115, 190, 190);
+    ctx.fillStyle='#241a10'; ctx.fillRect(tx-3, 214, 6, 16);   // 횃대
+    ctx.fillStyle='rgba(255,160,50,0.85)';                     // 불꽃
+    ctx.beginPath(); ctx.ellipse(tx, 210+flick*0.5, 4, 7, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(255,230,140,0.9)';
+    ctx.beginPath(); ctx.ellipse(tx, 212+flick*0.5, 2, 3.5, 0, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+// 배경 기둥 한 개 : 무너진 기둥은 부러진 채 + 바닥에 쓰러진 상단 조각
+function drawBgPillar(x, hv, idx){
+  const bw = 40, broken = hv>0.55, baseY = H-24;
+  const stone = '#332a1c';
+  // 주춧돌
+  ctx.fillStyle='#2c2416'; ctx.fillRect(x-8, baseY, bw+16, 24);
+  ctx.fillStyle='#3a2f1e'; ctx.fillRect(x-8, baseY, bw+16, 6);
+  // 몸통
+  const topY = broken ? 90 + hv*160 : 14;
+  ctx.fillStyle=stone; ctx.fillRect(x, topY, bw, baseY-topY);
+  ctx.fillStyle='rgba(255,210,150,0.06)'; ctx.fillRect(x+3, topY, 6, baseY-topY);  // 광택
+  ctx.strokeStyle='rgba(0,0,0,0.35)'; ctx.lineWidth=1;
+  for(let f=1;f<4;f++){ ctx.beginPath(); ctx.moveTo(x+f*bw/4, topY+2); ctx.lineTo(x+f*bw/4, baseY-2); ctx.stroke(); }
+  if(!broken){
+    ctx.fillStyle='#2c2416'; ctx.fillRect(x-6, 0, bw+12, 16);   // 천장 받침(capital)
+  } else {
+    // 부러진 톱니 상단
+    ctx.fillStyle=stone;
+    ctx.beginPath(); ctx.moveTo(x, topY+12);
+    for(let j=0;j<4;j++) ctx.lineTo(x+j*bw/4+(bw/8), topY+(j%2?2:9));
+    ctx.lineTo(x+bw, topY+12); ctx.closePath(); ctx.fill();
+    // 바닥에 쓰러진 기둥 조각
+    ctx.save(); ctx.translate(x+bw+26, baseY+2); ctx.rotate(-0.08);
+    ctx.fillStyle='#302818'; ctx.fillRect(-34, -14, 68, 14);
+    ctx.strokeStyle='rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.moveTo(-17,-12); ctx.lineTo(-17,-2); ctx.moveTo(17,-12); ctx.lineTo(17,-2); ctx.stroke();
+    ctx.restore();
+  }
+  // 덩굴이 기둥을 휘감음 (70%)
+  if(bhash(idx*31+7)<0.7){
+    ctx.strokeStyle='rgba(40,56,28,0.75)'; ctx.lineWidth=2.5;
+    const wrapN = broken?3:4;
+    for(let w2=0; w2<wrapN; w2++){
+      const wy = topY+30 + w2*((baseY-topY-50)/(wrapN-1)) + bhash(idx*3+w2)*18;
+      ctx.beginPath(); ctx.moveTo(x-4, wy);
+      ctx.bezierCurveTo(x+bw*0.3, wy+9, x+bw*0.7, wy-9, x+bw+4, wy+4);
+      ctx.stroke();
+      ctx.fillStyle='rgba(46,64,32,0.6)';
+      ctx.beginPath(); ctx.ellipse(x+bw*0.5, wy+3, 5, 3, 0.4, 0, Math.PI*2); ctx.fill();
+    }
+  }
+  // 기둥 상단 거미줄 (45%)
+  if(bhash(idx*17+2)<0.45) drawWeb(x+bw+2, broken? topY+8 : 18, 30+hv*14);
+}
+
+// 4분의 1 거미줄 : 앵커에서 아래+오른쪽으로 부챗살과 호
+function drawWeb(ax, ay, r){
+  ctx.strokeStyle='rgba(205,195,175,0.15)'; ctx.lineWidth=1;
+  for(const t of [0.15, 0.5, 0.85]){
+    ctx.beginPath(); ctx.moveTo(ax,ay);
+    ctx.lineTo(ax+Math.cos(t)*r, ay+Math.sin(t)*r); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(ax+r*0.9, ay); ctx.stroke();
+  for(let k=1;k<=3;k++){
+    ctx.beginPath(); ctx.arc(ax, ay, r*k/3*0.9, 0, Math.PI/2*0.9); ctx.stroke();
   }
 }
 
@@ -1790,7 +1908,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.32]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.33]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1855,7 +1973,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.32 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.33 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
