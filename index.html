@@ -41,6 +41,7 @@ let state = 'menu';       // menu | play | clear | gameover
 let camX = 0;
 let score = 0, gems = 0;
 let clearTimer = 0, overTimer = 0;
+let paused = false;                 // P 키 일시정지
 let shake = 0;
 let startTime = 0;
 
@@ -458,7 +459,12 @@ window.addEventListener('keydown', e=>{
     if(state==='menu') startGame();
     if(state==='clear'||state==='gameover') restart();
   }
-  if(e.code==='KeyR'){ startGame(); state='play'; }
+  // 일시정지 : 플레이 중에만 P로 토글
+  if(e.code==='KeyP' && state==='play'){
+    paused = !paused;
+    sfx(paused?'block':'gem');
+  }
+  if(e.code==='KeyR'){ startGame(); state='play'; paused=false; }
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ShiftLeft','ShiftRight'].includes(e.code)) e.preventDefault();
 });
 window.addEventListener('keyup', e=>{ keys[e.code]=false; });
@@ -1171,6 +1177,7 @@ function render(){
   if(state==='menu') drawMenu();
   else if(state==='clear') drawClear();
   else if(state==='gameover') drawGameOver();
+  if(paused && state==='play') drawPause();
   if(state==='play' && bossActive && !bossDead) drawBossBar();
   if(state==='play' && !bossActive && center(p).x > 158*TILE){
     drawMessage('보스가 다가오고 있다', 200);
@@ -1783,7 +1790,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.31]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.32]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1810,6 +1817,19 @@ function drawMessage(msg, dur){
   ctx.font='14px sans-serif'; ctx.fillStyle='#fc8';
   ctx.fillText('가까이 다가가면 싸움이 시작됩니다.', W/2, H/2+26);
 }
+function drawPause(){
+  ctx.fillStyle='rgba(0,0,0,0.55)';
+  ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';
+  const pulse = Math.floor(performance.now()/600)%2===0;
+  ctx.fillStyle = pulse? '#ffe29a' : '#c9a86a';
+  ctx.font='bold 42px serif';
+  ctx.fillText('일시 정지', W/2, H/2-40);
+  ctx.font='16px sans-serif'; ctx.fillStyle='#e8d8b8';
+  ctx.fillText('P 키를 누르면 계속합니다', W/2, H/2+8);
+  ctx.font='13px sans-serif'; ctx.fillStyle='#b99a6a';
+  ctx.fillText('← → 이동 · Shift 점프 · Z 공격 · ↓ 앉기 · R 재시작', W/2, H/2+40);
+}
 function drawMenu(){
   ctx.fillStyle='rgba(0,0,0,0.62)';
   ctx.fillRect(0,0,W,H);
@@ -1824,7 +1844,7 @@ function drawMenu(){
   ctx.fillText('채찍을 휘둘러 가드를 쓰러뜨리고 퍼즐을 풀어', W/2, 254);
   ctx.fillText('마지막 거대 야만검사를 상대하세요.', W/2, 278);
   ctx.font='16px sans-serif'; ctx.fillStyle='#ffe29a';
-  ctx.fillText('← → 이동  ·  Shift 점프  ·  Z 공격  ·  ↓ 앉기  ·  Enter 시작', W/2, 340);
+  ctx.fillText('← → 이동  ·  Shift 점프  ·  Z 공격  ·  ↓ 앉기  ·  P 일시정지  ·  Enter 시작', W/2, 340);
   ctx.fillStyle='#caa86a'; ctx.font='14px sans-serif';
   ctx.fillText('[ 팁 ] 블록을 밀어 스위치에 올리면 철창이 열립니다.', W/2, 392);
   ctx.fillStyle='#ffe29a'; ctx.font='14px sans-serif';
@@ -1835,7 +1855,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.31 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.32 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
@@ -1880,6 +1900,7 @@ function loop(now){
   requestAnimationFrame(loop);
   let dt = (now-last)/1000; last = now;
   if(dt>0.05) dt = 0.05;
+  if(paused && state==='play'){ render(); return; }   // 일시정지: 갱신 생략, 화면 유지
   if(state==='play') update(dt);
   else if(state==='clear' || state==='gameover') update(dt);
   render();
