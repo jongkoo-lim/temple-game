@@ -449,18 +449,19 @@ function spawnEnemies(){
 // ---------- 입력 ----------
 window.addEventListener('keydown', e=>{
   keys[e.code] = true;
-  if(e.code==='Space'||e.code==='ArrowUp'||e.code==='KeyW') p.jumpBuf = 0.12;
-  if((e.code==='KeyJ'||e.code==='KeyX')) tryAttack();
+  // 점프: Shift (좌/우 공통)
+  if(e.code==='ShiftLeft'||e.code==='ShiftRight') p.jumpBuf = 0.12;
+  // 공격: Z
+  if(e.code==='KeyZ') tryAttack();
   if(e.repeat) return;
   if(e.code==='Enter'){
     if(state==='menu') startGame();
     if(state==='clear'||state==='gameover') restart();
   }
   if(e.code==='KeyR'){ startGame(); state='play'; }
-  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ShiftLeft','ShiftRight'].includes(e.code)) e.preventDefault();
 });
 window.addEventListener('keyup', e=>{ keys[e.code]=false; });
-  cv.addEventListener('mousedown', ()=>{ tryAttack(); });
 cv.addEventListener('contextmenu', e=>e.preventDefault());
 
 // ---------- 게임 제어 ----------
@@ -555,15 +556,15 @@ function updatePlayer(dt, s){
   const prevOn = p.onGround;
   if(cutscene>0){ p.vx=0; p.vy=0; return; }   // 컷신 중엔 조작/중력 모두(door 중간 이동 막음)
 
-  // 이동
-  const dir = (keys['ArrowRight']||keys['KeyD']?1:0) - (keys['ArrowLeft']||keys['KeyA']?1:0);
+  // 이동 : 방향키만
+  const dir = (keys['ArrowRight']?1:0) - (keys['ArrowLeft']?1:0);
   p.vx = dir * p.speed;
   if(dir!==0) p.facing = dir;
 
   // 사다리 감지/상태 (= 높이 5칸 이상 벽은 ↑/↓로 직접 타고 오름)
   const onLad = onLadder(p);
-  const up = keys['ArrowUp']||keys['KeyW'];
-  const down = keys['ArrowDown']||keys['KeyS'];
+  const up = keys['ArrowUp'];
+  const down = keys['ArrowDown'];
   if((onLad && (up||down)) || (p.climbing && onLad)) p.climbing = true;
   else p.climbing = false;
 
@@ -574,8 +575,8 @@ function updatePlayer(dt, s){
   } else {
     if(!p.onGround){ p.vy += 0.55*s; if(p.vy>14) p.vy=14; }
     else { p.vy = 0; p.coyote = 0.1; }
-    // 점프
-    const jumpKey = keys['Space']||up;
+    // 점프 : Shift만
+    const jumpKey = keys['ShiftLeft']||keys['ShiftRight'];
     if(p.jumpBuf>0 && (p.onGround || p.coyote>0)){
       p.vy = -p.jumpV; p.onGround=false; p.coyote=0; p.jumpBuf=0;
       sfx('jump');
@@ -588,7 +589,7 @@ function updatePlayer(dt, s){
   // 사다리를 벗어났거나(이동), 착지했으면 사다리 상태 해제
   if(p.climbing && (!onLadder(p) || p.onGround)) p.climbing = false;
 
-  // 앉기(크라우치): 지상에서 ↓(S) 누르면 몸을 낮춰 회전 칼날을 밑에서 통과
+  // 앉기(크라우치): 지상에서 ↓ 방향키를 누르면 몸을 낮춰 회전 칼날을 밑에서 통과
   const wantCrouch = p.onGround && down && !p.climbing;
   if(wantCrouch && !p.crouch){ p.h = CROUCH_H; p.y += (STAND_H - CROUCH_H); p.crouch = true; }
   else if(!wantCrouch && p.crouch){ p.h = STAND_H; p.y -= (STAND_H - CROUCH_H); p.crouch = false; }
@@ -742,7 +743,7 @@ function updateBlocks(dt, s){
     b.vy = 0;
     b.onGround = false;
     // 플레이어가 밀기
-    const dir = (keys['ArrowRight']||keys['KeyD']?1:0) - (keys['ArrowLeft']||keys['KeyA']?1:0);
+    const dir = (keys['ArrowRight']?1:0) - (keys['ArrowLeft']?1:0);
     if(p.attack>0){} 
     // 수평 충돌로 밀기
     if(overlap(p,b)){
@@ -1073,7 +1074,7 @@ function updateChest(dt){
     if(c.rise>=1){
       c.rise=1; c.risen=true; sfx('slam'); shake=6;
       burst(c.x+c.w/2, 11*TILE, '#cfc8b0', 16);
-      showToast('오래된 보물 상자! 가까이서 공격(J/X)으로 열어보자', 2.6);
+      showToast('오래된 보물 상자! 가까이서 공격(Z)으로 열어보자', 2.6);
     }
   }
   else if(!c.opened){
@@ -1782,7 +1783,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.30]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.31]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -1823,7 +1824,7 @@ function drawMenu(){
   ctx.fillText('채찍을 휘둘러 가드를 쓰러뜨리고 퍼즐을 풀어', W/2, 254);
   ctx.fillText('마지막 거대 야만검사를 상대하세요.', W/2, 278);
   ctx.font='16px sans-serif'; ctx.fillStyle='#ffe29a';
-  ctx.fillText('← → 이동  ·  Space 점프  ·  J/X 채찍  ·  Enter 시작', W/2, 340);
+  ctx.fillText('← → 이동  ·  Shift 점프  ·  Z 공격  ·  ↓ 앉기  ·  Enter 시작', W/2, 340);
   ctx.fillStyle='#caa86a'; ctx.font='14px sans-serif';
   ctx.fillText('[ 팁 ] 블록을 밀어 스위치에 올리면 철창이 열립니다.', W/2, 392);
   ctx.fillStyle='#ffe29a'; ctx.font='14px sans-serif';
@@ -1834,7 +1835,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.30 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.31 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   ctx.fillStyle='rgba(0,0,0,0.55)';
