@@ -2029,7 +2029,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.41]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.42]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2083,14 +2083,10 @@ function drawMenu(){
   ctx.textAlign='center';
   ctx.fillStyle='#e8c66a';
   ctx.font='bold 40px serif';
-  ctx.fillText('잃어버린 사원', W/2, 130);
+  ctx.fillText('잃어버린 사원', W/2, 90);
   ctx.font='20px serif'; ctx.fillStyle='#c9a86a';
-  ctx.fillText('— 채찍의 탐험가 · Stage 1 —', W/2, 166);
-  ctx.font='15px sans-serif'; ctx.fillStyle='#e8d8b8';
-  ctx.fillText('고대 신전 깊숙이. 추억의 영화(인디아나 존스풍)처럼', W/2, 214);
-  ctx.fillText('채찍을 휘둘러 가드를 쓰러뜨리고 퍼즐을 풀어', W/2, 236);
-  ctx.fillText('마지막 거대 야만검사를 상대하세요.', W/2, 258);
-  // 조작법 (표 형태로 명확하게)
+  ctx.fillText('— 채찍의 탐험가 · Stage 1 —', W/2, 126);
+  // 조작법 (표 형태로 명확하게) - 소개 문구 없이 위쪽부터 배치
   const ctrl = [
     ['← →', '좌우 이동'],
     ['↑', '점프 (길게 누르면 높게 / 사다리 타기)'],
@@ -2101,27 +2097,27 @@ function drawMenu(){
     ['Enter', '게임 시작'],
     ['C', '엔딩 크레딧 보기'],
   ];
-  ctx.font='bold 15px sans-serif';
   ctrl.forEach((c2, i)=>{
-    const yy = 300 + i*26;
+    const yy = 200 + i*30;
     ctx.textAlign='right'; ctx.fillStyle='#ffe29a';
+    ctx.font='bold 15px sans-serif';
     ctx.fillText(c2[0], W/2-16, yy);
     ctx.textAlign='left'; ctx.fillStyle='#e8d8b8';
     ctx.font='15px sans-serif';
     ctx.fillText(c2[1], W/2+10, yy);
-    ctx.font='bold 15px sans-serif';
   });
-  ctx.fillStyle='#caa86a'; ctx.font='13px sans-serif'; ctx.textAlign='center';
-  ctx.fillText('[ 팁 ] 블록을 밀어 스위치에 올리면 철창이 열립니다.', W/2, 496);
+  ctx.textAlign='center';
+  ctx.fillStyle='#caa86a'; ctx.font='13px sans-serif';
+  ctx.fillText('[ 팁 ] 블록을 밀어 스위치에 올리면 철창이 열립니다.', W/2, 468);
   ctx.fillStyle='#ffe29a'; ctx.font='14px sans-serif';
-  ctx.fillText('[ 누적 클리어 '+totalClears+'회 ] 보스를 쓰러뜨리면 숨겨진 보물 상자가 나타납니다!', W/2, 520);
+  ctx.fillText('[ 누적 클리어 '+totalClears+'회 ] 보스를 쓰러뜨리면 숨겨진 보물 상자가 나타납니다!', W/2, 492);
   const pulse = Math.floor(performance.now()/500)%2===0;
   ctx.fillStyle = pulse? '#fff' : '#ffd95a';
   ctx.font='bold 24px sans-serif';
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.41 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.42 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
