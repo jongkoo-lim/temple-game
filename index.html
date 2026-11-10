@@ -91,6 +91,12 @@ const ARENAL = 161;                       // 어레나 왼쪽 신전 문 컬럼 
 const ARENAR = 198;                       // 어레나 오른쪽 끝 컬럼
 // 채찍 강화 아이템 / 안내 토스트
 let whipItems = [];
+let stage = 1;                     // 현재 스테이지 (1=잃어버린 사원, 2=정글의 원주민)
+let interT = 0;                    // 스테이지 전환 연출(인터루드) 타이머
+let vines = [];                    // [S2] 그네 넝쿨 (구덩이 횡단용)
+let darts = [];                    // [S2] 원주민 독침
+let vineHp = {};                   // [S2] 넝쿨 장애물 타일 체력
+let vineToastDone = false;         // [S2] 넝쿨 잡기 안내 1회 표시
 let toast = null, toastT = 0;
 // 보물 상자 : 보스를 처치하면(1회부터) 쓰러진 자리에서 솟아오르는 특별 보상
 let chest = null;
@@ -108,6 +114,7 @@ function isSolidAt(c, r){
   const ch = level[r][c];
   if(ch==='#') return true;
   if(ch==='K') return true;               // 뼈 섬(어레나 바닥)
+  if(ch==='W') return true;               // [S2] 넝쿨 장애물 (채찍으로 절단 가능)
   if(ch==='D' && !doorOpen) return true;  // 신전의 문 (열리면 통과)
   if(ch==='G' && !gateOpen) return true;
   if(ch==='A' && bossActive) return true; // 보스 아레나: 진입 후에만 폐쇄
@@ -225,12 +232,14 @@ const p = {
 function resetPlayer(){
   p.x = checkpoint.x; p.y = checkpoint.y; p.vx=0; p.vy=0; p.hp=5;
   p.hurtInv=1.2; p.attack=0; p.attackT=0; p.onGround=false;
+  p.onVine = null; p.vineCd = 0;        // [S2] 그네 상태 초기화
   p.hatOff = false; hats.length = 0;     // 새 게임 시작: 모자 초기화
 }
 function respawn(){
   p.hp--;
   if(p.hp<=0 && state==='play'){ p.hp=0; state='gameover'; overTimer=0; return; }
   p.x = checkpoint.x; p.y = checkpoint.y; p.vx=0; p.vy=0; p.hurtInv=1.5;
+  p.onVine = null; p.vineCd = 0;        // [S2] 그네 상태 초기화
   spawnEnemies();          // 적도 플레이어와 함께 리스폰 (전멸/이동 상태 초기화)
   showToast('리스폰! 적들이 다시 몰려온다', 1.4);
 }
@@ -312,6 +321,7 @@ function buildLevel(){
   ground(1,41,16);
   set(7,15,'^');                 // 장애물 1 (저지대)
   set(20,15,'^');                // 장애물 2 (저지대)
+  if(stage===2){ for(let r=10;r<=15;r++) set(22,r,'W'); }   // [S2] 넝쿨 장애물 : 채찍으로 잘라 통과
 
   // [2] 높이 5칸 이상 벽(col42 고지대)은 사다리로 ↑↑ 타고 오름
   for(let r=10;r<=15;r++) set(41,r,'L');   // 사다리 (꼭대기가 고지대 놓면 높이보다 살짝 위)
@@ -346,7 +356,11 @@ function buildLevel(){
   fill(132,140,8,10,'#');          // 높은 평탄(3타일 위) - 점프로 올라탐
   set(136,7,'g'); set(138,7,'g');
   set(144,10,'^'); set(147,10,'^'); set(150,10,'^');   // 가시 지대 (점프로 넘기)
-  fill(153,155,6,10,'#');          // 5타일짜리 벽 → 사다리로 등반
+  if(stage===2){
+    for(let r=6;r<=10;r++) set(153,r,'W');   // [S2] 벽돌 벽 대신 넝쿨 장애물 (절단하여 통과)
+  } else {
+    fill(153,155,6,10,'#');          // 5타일짜리 벽 → 사다리로 등반
+  }
   for(let r=5;r<=10;r++) set(152,r,'L');
   set(154,4,'g');                  // 벽 꼭대기 보석
   set(157,9,'g'); set(159,9,'g');  // 신전 문 앞 복도
@@ -400,6 +414,7 @@ function buildLevel(){
   // --- 스폰 ---
   enemies.length=0; platforms.length=0; blocks.length=0; gemsList.length=0; particles.length=0; blades.length=0;
   bullets.length=0; pistolItems.length=0; heartsList.length=0;
+  vines.length=0; darts.length=0; vineHp={}; vineToastDone=false;   // [S2]
   boss=null; gateOpen=false; bossActive=false; bossDead=false;
   doorOpen=false; doorLift=0; cutscene=0; csT=0;
 
@@ -408,10 +423,16 @@ function buildLevel(){
 
   spawnEnemies();
 
-  // 이동발판 (횡단 - 구덩이 위를 표면과 같은 높이로 왕복, 건너는 페리)
-  platforms.push( makePlatform(64.5*TILE, 10*TILE+32, 1) );   // 구덩이1(col58~71)
-  platforms.push( makePlatform(89.5*TILE, 10*TILE+32, 1) );   // 구덩이2(col84~95)
-  platforms.push( makePlatform(117.5*TILE, 10*TILE+32, 1) );  // 구덩이3(col111~124)
+  // 구덩이 횡단 수단 : Stage1=이동발판 / Stage2=좌우로 흔들리는 그네 넝쿨
+  if(stage===2){
+    for(const c2 of [61.5, 65, 68.5]) vines.push(makeVine(c2*TILE+16, 44, 9*TILE));  // 구덩이1(col58~71)
+    for(const c2 of [87, 90, 93])     vines.push(makeVine(c2*TILE+16, 44, 9*TILE));  // 구덩이2(col84~95)
+    for(const c2 of [114, 117.5, 121])vines.push(makeVine(c2*TILE+16, 44, 9*TILE));  // 구덩이3(col111~124)
+  } else {
+    platforms.push( makePlatform(64.5*TILE, 10*TILE+32, 1) );   // 구덩이1(col58~71)
+    platforms.push( makePlatform(89.5*TILE, 10*TILE+32, 1) );   // 구덩이2(col84~95)
+    platforms.push( makePlatform(117.5*TILE, 10*TILE+32, 1) );  // 구덩이3(col111~124)
+  }
 
   // 회전 칼날 ("↓로 앉아서 아래로 피하는" 장애물)
   blades.length = 0;
@@ -428,6 +449,10 @@ function buildLevel(){
 function makePlatform(x,y,axis){ // axis 1=수평, 0=수직 (넓고 느리게 → 탑승 난이도 완화)
   return { x, y, w:140, h:16, axis, baseX:x, baseY:y, t:Math.random()*10, on:false };
 }
+// ★ [S2] 그네 넝쿨 : 가지에 매달려 좌우로 흔들리는 정자 pendulum (sin 구동 = 항상 일정 진폭)
+function makeVine(px, py, len){
+  return { px, py, len, t:Math.random()*3, ph:Math.random()*6.28, amp:1.0, spd:1.55, ang:0, angV:0 };
+}
 function spawnGuard(col, groundRow, kind, leash){
   const gy = groundRow*TILE - 44;
   enemies.push({ x:col*TILE+6, y:gy, w:22, h:42, vx:0.7, vy:0, onGround:false,
@@ -440,10 +465,36 @@ function spawnFlyer(col, row){
     hp:1, f:1, speed:0, hitCd:0, mx:col*TILE,
     kind:'fly', baseY:row*TILE, t:Math.random()*6, range:160 });
 }
+function spawnNative(col, groundRow, kind, leash){
+  spawnGuard(col, groundRow, kind, leash);
+  const e = enemies[enemies.length-1];
+  e.native = true;                 // [S2] 원주민 : 근접 AI + 독침 원거리 공격
+  e.aim = 0; e.shootT = 0.6 + Math.random();
+}
 function spawnEnemies(){
   // 적 스폰 - 유형별(걷는 가드/점퍼/차저/플라이어), 마지막 인자=밟는 SOLID 행
   //  (게임 시작 + 플레이어 리스폰 시 모두 호출되어 적도 함께 리스폰됨)
   enemies.length = 0;
+  if(stage===2){
+    // [S2] 정글의 원주민 : 같은 근접 패턴(걷기/점프/돌진) + 독침 취사군
+    spawnNative(12, 16, 'walk');    // 입구 (저지대)
+    spawnNative(23, 16, 'jump');    // 저지대 점퍼
+    spawnNative(46, 11, 'charge');  // 고지대 입구 차저
+    spawnNative(52, 11, 'walk');    // 칼날 지대 사냥꾼
+    spawnNative(79, 11, 'walk');    // 보석 탑~구덩이2 사이
+    spawnNative(99, 11, 'jump');    // 구덩이2 뒤 복도 점퍼
+    spawnNative(129, 11, 'walk');   // 유적 디딤돌 근처
+    spawnNative(146, 11, 'jump');   // 가시 지대 점퍼
+    spawnNative(159, 11, 'charge'); // 신전 문 앞 차저
+    spawnFlyer(117, 9);             // 구덩이3 위를 나는 박쥐
+    spawnFlyer(137, 5);             // 높은 평탄 위를 나는 박쥐
+    spawnNative(35, 10, 'walk', 30);   // 저지대 2단 발판 (보석 지킴)
+    spawnNative(101, 8, 'walk', 30);   // 복도 상층 발판 (보석 지킴)
+    spawnNative(147, 8, 'walk', 28);   // 유적 상층 발판 (하트 지킴)
+    spawnFlyer(32, 8);                // 저지대 상층을 도는 박쥐
+    spawnFlyer(103, 6);               // 복도 상층을 도는 박쥐
+    return;
+  }
   spawnGuard(12, 16, 'walk');    // 입구 (저지대)
   spawnGuard(23, 16, 'jump');    // 저지대 점퍼
   spawnGuard(46, 11, 'charge');  // 고지대 입구 차저
@@ -466,14 +517,15 @@ function spawnEnemies(){
 // ---------- 입력 ----------
 window.addEventListener('keydown', e=>{
   keys[e.code] = true;
+  if(e.repeat) return;               // 리핏 무시 : 점프버퍼/공격/넝쿨 해제는 "새 누름"만 인정
   // 점프: ↑ 방향키
   if(e.code==='ArrowUp') p.jumpBuf = 0.12;
   // 공격: Space
   if(e.code==='Space') tryAttack();
-  if(e.repeat) return;
   if(e.code==='Enter'){
     if(state==='menu') startGame();
     if(state==='clear'||state==='gameover') restart();
+    if(state==='interlude') startStage2();   // 연출 스킵
   }
   // 메뉴에서 C : 엔딩 크레딧만 바로 보기
   if(e.code==='KeyC' && state==='menu'){
@@ -485,14 +537,15 @@ window.addEventListener('keydown', e=>{
     paused = !paused;
     sfx(paused?'block':'gem');
   }
-  if(e.code==='KeyR'){ startGame(); state='play'; paused=false; }
+  if(e.code==='KeyR'){ startGame(stage); state='play'; paused=false; }
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ShiftLeft','ShiftRight'].includes(e.code)) e.preventDefault();
 });
 window.addEventListener('keyup', e=>{ keys[e.code]=false; });
 cv.addEventListener('contextmenu', e=>e.preventDefault());
 
 // ---------- 게임 제어 ----------
-function startGame(){
+function startGame(stg){
+  stage = stg || 1;               // R/재시작은 현재 스테이지부터, 메뉴 시작은 1
   buildLevel();
   collectGemsFromGrid();
   resetPlayer();
@@ -504,7 +557,18 @@ function startGame(){
   creditsOnly = false;            // 크레딧 단독 모드 해제
   camX = Math.max(0, Math.min(p.x-W/2, COLS*TILE-W));
 }
-function restart(){ startGame(); }
+// ★ Stage 1 → 2 전환 : 무기/점수는 유지, 체력 회복 후 정글에서 재시작
+function startStage2(){
+  stage = 2;
+  buildLevel();
+  collectGemsFromGrid();
+  resetPlayer();                  // 위치/HP(5) 초기화 (whipLv·weapon·score는 유지)
+  deadInitDone = false; chest = null;
+  state='play'; paused=false;
+  camX = Math.max(0, Math.min(p.x-W/2, COLS*TILE-W));
+  showToast('STAGE 2 — 정글의 원주민! 독침을 조심하라', 3.2);
+}
+function restart(){ startGame(stage); }
 
 // ---------- 업데이트 ----------
 function update(dt){
@@ -524,6 +588,8 @@ function update(dt){
     updateHats(dt, s);
     updateGems();
     updateBullets(dt, s);
+    updateVines(dt);              // [S2] 그네 넝쿨 흔들림
+    updateDarts(dt, s);           // [S2] 원주민 독침
     // 권총 탄약 서서히 장전 (탄창이 비면 완전히 막히지 않게)
     if(p.weapon==='pistol' && p.ammo < p.maxAmmo){
       p.reloadT += dt;
@@ -534,6 +600,10 @@ function update(dt){
   }else if(state==='clear'){
     clearTimer -= dt; creditT += dt; updateParticles(dt);
     if(clearTimer<=0){ /* 프레임 지속 */ }
+  }else if(state==='interlude'){
+    // ★ Stage1→2 연출 : 밀림으로 걸어가는 존스 (7초 후 자동 진행)
+    interT += dt; updateParticles(dt);
+    if(interT > 7){ startStage2(); }
   }else if(state==='gameover'){
     overTimer += dt; updateParticles(dt);
   }
@@ -587,6 +657,24 @@ function updatePlayer(dt, s){
   const prevOn = p.onGround;
   if(cutscene>0){ p.vx=0; p.vy=0; return; }   // 컷신 중엔 조작/중력 모두(door 중간 이동 막음)
 
+  // ★ [S2] 그네 넝쿨 : 매달린 동안엔 일반 물리 대신 넝쿨 끝점을 따라간다
+  if(p.onVine){
+    const v = p.onVine;
+    if(p.jumpBuf > 0){
+      // ↑ 새 누름 : 진자의 접선 속도(탄속)를 실어 점프하며 놓는다
+      const rel = Math.max(-8.5, Math.min(8.5, Math.cos(v.ang)*v.angV*v.len/60*1.2));
+      p.vx = rel; p.vy = -10.5;
+      p.onVine = null; p.vineCd = 0.35; p.jumpBuf = 0; p.onGround = false;
+      sfx('jump');
+    } else {
+      const ex = v.px + Math.sin(v.ang)*v.len, ey = v.py + Math.cos(v.ang)*v.len;
+      p.x = ex - p.w/2; p.y = ey - 8;      // 매듭을 두 손으로 잡은 자세
+      p.vx = 0; p.vy = 0; p.onGround = false; p.climbing = false;
+    }
+  }
+  const onV = !!p.onVine;
+
+  if(!onV){
   // 이동 : 방향키만 + 짧은 가속/감속으로 무게감 (지상 빠름/공중 느림)
   //  단, 피격 넉백 직후(hurtInv > 0.85)엔 관성 무시 - 밀려나는 힘이 살아있게
   const dir = (keys['ArrowRight']?1:0) - (keys['ArrowLeft']?1:0);
@@ -657,6 +745,24 @@ function updatePlayer(dt, s){
   }
   // 퍼즐 블록에 서기(블록 위에 올라타기도)
   for(const b of blocks){ if(overlap(p,{x:b.x,y:b.y-1,w:b.w,h:b.h}) && p.vy>=0){ p.onGround=true; } }
+  }
+
+  // ★ [S2] 그네 넝쿨 잡기 : 공중에서 넝쿨 끝에 닿으면 자동으로 매달림
+  if(stage===2){
+    if((p.vineCd||0) > 0) p.vineCd -= dt;
+    if(!p.onVine && !p.onGround && (p.vineCd||0) <= 0){
+      for(const v of vines){
+        const ex = v.px + Math.sin(v.ang)*v.len, ey = v.py + Math.cos(v.ang)*v.len;
+        const dx = (p.x+p.w/2) - ex, dy = (p.y+12) - ey;
+        if(dx*dx + dy*dy < 34*34){
+          p.onVine = v; p.vx = 0; p.vy = 0; p.jumpBuf = 0;
+          sfx('gem');
+          if(!vineToastDone){ vineToastDone = true; showToast('넝쿨을 잡았다! 흔들림에 맞춰 ↑로 뛰어넘자', 2.8); }
+          break;
+        }
+      }
+    }
+  }
 
   // 가시/함정 피해
   if(p.hurtInv<=0 && onHazard(p)){
@@ -695,6 +801,18 @@ function updatePlayer(dt, s){
       shake = 6;
       if(boss.hp<=0){ bossDead = true; bossDeadInit(); }
     }
+    // ★ [S2] 넝쿨 장애물 절단 : 채찍을 대면 잘려서 길이 생김 (타일 hp 1)
+    if(stage===2){
+      const c0=Math.floor(hb.x/TILE), c1=Math.floor((hb.x+hb.w-1)/TILE);
+      const r0=Math.floor(hb.y/TILE), r1=Math.floor((hb.y+hb.h-1)/TILE);
+      for(let r=r0;r<=r1;r++)for(let c=c0;c<=c1;c++){
+        if(tileAt(c,r)!=='W') continue;
+        const key = 'W'+c+'_'+r;
+        if(p.hitSet.has(key)) continue;      // 한 번 휘두름에 타일당 1회
+        p.hitSet.add(key);
+        damageVine(c, r, p.facing*3);
+      }
+    }
   }
 }
 function onHazard(b){
@@ -707,6 +825,7 @@ function onHazard(b){
 }
 function damagePlayer(n, kx){
   p.hp -= n; p.hurtInv = 1.2;
+  p.onVine = null; p.vineCd = 0.5;    // [S2] 그네에 매달린 채 피격 시 즉시 놓음
   p.hurtFx = 0.12;                  // ★ 피격 직후 짧게 흰색 플래시
   p.vx = kx*5; p.vy = -4.5;
   shake = 8; sfx('hit');
@@ -773,6 +892,22 @@ function updateEnemies(dt, s){
         else if(e.st==='rest'){ e.vx=0; if(e.t>0.9){ e.st='idle'; e.t=0; } }
       }
       else { e.vx = e.f * (e.speed||0.7); }
+
+      // ★ [S2] 원주민 독침 : 플레이어를 발견하면 멈춰 조준(0.5초) → 취사군 발사
+      if(e.native){
+        if(e.aim > 0){
+          e.aim -= dt; e.vx = 0;
+          if(e.aim <= 0){
+            darts.push({ x:e.x+(e.f>0? e.w+2 : -10), y:e.y+16, vx:e.f*5.2, life:2.8 });
+            sfx('shoot');
+            e.shootT = 1.4 + Math.random()*0.9;
+          }
+        } else if((e.shootT||0) > 0){ e.shootT -= dt; }
+        else if(dist < 300 && sameH && e.onGround && (e.kind!=='charge' || e.st==='idle')){
+          e.f = playerCenter().x > center(e).x ? 1 : -1;
+          e.aim = 0.5;
+        }
+      }
 
       moveBody(e, s);
       // 벽이나 범위 밖이면 뒤집기
@@ -873,6 +1008,43 @@ function updatePlatforms(dt){
   }
 }
 
+// ★ [S2] 그네 넝쿨 물리 : 결정론적 sin 진자 (진폭/속도 일정 → 타이밍 파악 가능)
+function updateVines(dt){
+  for(const v of vines){
+    v.t += dt;
+    const a = v.ph + v.t*v.spd;
+    v.ang  = v.amp * Math.sin(a);
+    v.angV = v.amp * v.spd * Math.cos(a);
+  }
+}
+// ★ [S2] 원주민 독침 : 직진 투사체 (벽/플레이어에 맞으면 소멸)
+function updateDarts(dt, s){
+  for(let i=darts.length-1;i>=0;i--){
+    const d = darts[i];
+    d.x += d.vx*s; d.life -= dt;
+    let dead = d.life<=0;
+    const c = Math.floor((d.x + (d.vx>0?4:-4))/TILE), r = Math.floor(d.y/TILE);
+    if(!dead && isSolidAt(c,r)){ burst(d.x, d.y, '#8fd44a', 4); dead = true; }
+    if(!dead && p.hurtInv<=0 && overlap(p, {x:d.x-5, y:d.y-2, w:10, h:5})){
+      damagePlayer(1, d.vx>0?1:-1);
+      dead = true;
+    }
+    if(dead) darts.splice(i,1);
+  }
+}
+// ★ [S2] 넝쿨 장애물 절단 : hp 1 → 잘려서 길이 생김 (타일을 '.'로)
+function damageVine(c, r, kx){
+  const key = c+'_'+r;
+  vineHp[key] = (vineHp[key]===undefined ? 1 : vineHp[key]) - 1;
+  sfx('hit');
+  const cx = c*TILE+16, cy = r*TILE+16;
+  burst(cx, cy, '#4a7a2a', 8);
+  if(vineHp[key] <= 0){
+    level[r][c] = '.';
+    burst(cx, cy, '#6a9a3a', 16);
+    shake = Math.max(shake, 3);
+  }
+}
 function updateGems(){
   for(let i=gemsList.length-1;i>=0;i--){
     const g=gemsList[i];
@@ -929,9 +1101,10 @@ function updateBullets(dt, s){
     let dead = false;
     // 사거리(레벨이 오르면 길어짐)
     if(bl.dist > bl.maxDist) dead = true;
-    // 벽에 맞으면 튕겨 사라짐
+    // 벽에 맞으면 튕겨 사라짐 (+ [S2] 넝쿨 장애물은 탄환으로도 절단됨)
     const c = Math.floor((bl.x + (bl.vx>0?3:-3))/TILE), r = Math.floor(bl.y/TILE);
-    if(!dead && isSolidAt(c,r)){ burst(bl.x, bl.y, '#cfc8b0', 5); dead = true; }
+    if(!dead && tileAt(c,r)==='W'){ damageVine(c, r, bl.vx>0?3:-3); dead = true; }
+    else if(!dead && isSolidAt(c,r)){ burst(bl.x, bl.y, '#cfc8b0', 5); dead = true; }
     // 적 명중: 피를 튀기며 탄환은 소멸 (뚫고 지나가지 않음)
     if(!dead){
       const hb = { x:bl.x-3, y:bl.y-3, w:6, h:6 };
@@ -1009,7 +1182,10 @@ function updateBoss(dt, s, active){
                     y: 11*TILE-30, w:36, h:30, rise:0, risen:false, opened:false, openT:0 };
           showToast('신전의 바닥이 흔들린다… 무언가 올라온다!', 2.4);
           shake=8; sfx('door');
-        } else { state='clear'; clearTimer=1.4; sfx('clear'); }
+        } else {
+          if(stage===1){ state='interlude'; interT=0; sfx('door'); }   // 상자 없어도 S2로
+          else { state='clear'; clearTimer=1.4; sfx('clear'); }
+        }
       }
     }
     return;
@@ -1162,7 +1338,10 @@ function updateChest(dt){
         vx:(Math.random()*2-1)*1.3, vy:-(2.2+Math.random()*2.8),
         life:0.8+Math.random()*0.6, color:cols[(Math.random()*4)|0], s:2+Math.random()*2 });
     }
-    if(c.openT>3.4 && state==='play'){ state='clear'; clearTimer=1.4; sfx('clear'); }
+    if(c.openT>3.4 && state==='play'){
+      if(stage===1){ state='interlude'; interT=0; sfx('door'); }  // ★ S1 클리어 → 연출 후 S2로
+      else { state='clear'; clearTimer=1.4; sfx('clear'); }      // S2 클리어 → 엔딩 크레딧
+    }
   }
 }
 
@@ -1208,9 +1387,13 @@ function render(){
   for(const h of heartsList){ h.t+=0.12; drawHeartItem(h); }
   // 탄환
   for(const bl of bullets) drawBullet(bl);
+  // ★ [S2] 원주민 독침
+  for(const d of darts) drawDart(d);
 
   // 이동발판
   for(const pl of platforms) drawPlatform(pl);
+  // ★ [S2] 그네 넝쿨
+  for(const v of vines) drawVineSwing(v);
 
   // 블록
   for(const b of blocks) drawBlock(b);
@@ -1247,10 +1430,11 @@ function render(){
   if(state==='menu') drawMenu();
   else if(state==='clear') drawClear();
   else if(state==='gameover') drawGameOver();
+  else if(state==='interlude') drawInterlude();   // ★ S1→S2 연출 (전체 화면 덮음)
   if(paused && state==='play') drawPause();
   if(state==='play' && bossActive && !bossDead) drawBossBar();
   if(state==='play' && !bossActive && center(p).x > 158*TILE){
-    drawMessage('보스가 다가오고 있다', 200);
+    drawMessage(stage===2 ? '정글의 족장이 다가오고 있다' : '보스가 다가오고 있다', 200);
   }
 }
 
@@ -1258,6 +1442,7 @@ function render(){
 function bhash(n){ const x = Math.sin(n*127.1)*43758.5453; return x - Math.floor(x); }
 
 function drawBackground(){
+  if(stage===2){ drawJungleBackground(); return; }   // ★ [S2] 정글 배경
   // 어두운 신전 그라데이션
   const grad = ctx.createLinearGradient(0,0,0,H);
   grad.addColorStop(0,'#141009');
@@ -1399,6 +1584,97 @@ function drawWeb(ax, ay, r){
   }
 }
 
+// ============================================================
+//  ★ [Stage 2] 정글 배경 : 울창한 밀림 (빛기둥 + 나무 실루엣 + 반딧불)
+// ============================================================
+function drawJungleBackground(){
+  const grad = ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#14240e'); grad.addColorStop(0.55,'#1b3013'); grad.addColorStop(1,'#0a1407');
+  ctx.fillStyle=grad; ctx.fillRect(0,0,W,H);
+
+  // 빛기둥 (god rays) : 나무 사이로 쏟아지는 햇살
+  const rx = camX*0.12;
+  ctx.fillStyle='rgba(215,240,150,0.05)';
+  for(let i=Math.floor(rx/270)-1, e2=Math.floor((rx+W)/270)+1; i<=e2; i++){
+    const x=i*270-rx+30;
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x+64,0);
+    ctx.lineTo(x+150,H); ctx.lineTo(x+46,H); ctx.closePath(); ctx.fill();
+  }
+
+  // [원경] 나무 능선 실루엣 (parallax 0.25)
+  const px=camX*0.25;
+  ctx.fillStyle='#0f1c09';
+  ctx.beginPath(); ctx.moveTo(-4,H);
+  for(let x=-4;x<=W+4;x+=32){
+    const wx=x+px;
+    ctx.lineTo(x, 250 - (Math.sin(wx*0.012)*46 + Math.sin(wx*0.031)*20 + 66));
+  }
+  ctx.lineTo(W+4,H); ctx.closePath(); ctx.fill();
+
+  // [중경] 큰 정글 나무 (parallax 0.42)
+  const p2x = camX*0.42, gap = 330;
+  for(let i=Math.floor(p2x/gap)-1, e2=Math.floor((p2x+W)/gap)+1; i<=e2; i++){
+    const hv = bhash(i*13+11);
+    drawJungleTree(i*gap + hv*40 - p2x, hv, i);
+  }
+
+  // [중경] 천장에서 드리운 덩굴 + 잎 (신전보다 짙은 초록)
+  const vgap = 150;
+  for(let i=Math.floor(p2x/vgap)-1, e2=Math.floor((p2x+W)/vgap)+1; i<=e2; i++){
+    const hv = bhash(i*29+5);
+    const x = i*vgap + hv*60 - p2x;
+    const len = 44 + hv*120;
+    ctx.strokeStyle='rgba(46,72,30,0.8)'; ctx.lineWidth=3; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(x,0);
+    ctx.bezierCurveTo(x+8, len*0.4, x-8, len*0.7, x+4, len);
+    ctx.stroke();
+    ctx.fillStyle='rgba(58,88,36,0.7)';
+    for(let L=0;L<3;L++){
+      const ly=len*(0.35+L*0.25);
+      ctx.beginPath(); ctx.ellipse(x+(L%2?8:-6), ly, 6, 3.5, (L%2?0.6:-0.6), 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  // 반딧불 : 느리게 떠다니며 반짝이는 불빛 (월드 좌표 연동)
+  const t = performance.now()*0.001;
+  for(let i=0;i<16;i++){
+    const span = W+140;
+    let sx = (i*197 - camX*0.55) % span; if(sx<0) sx += span; sx -= 70;
+    const sy = 90 + bhash(i*11+3)*360 + Math.sin(t*1.2+i*2.1)*16;
+    const tw = 0.5+0.5*Math.sin(t*3.1+i*1.9);
+    ctx.fillStyle='rgba(215,255,140,'+(0.10+0.38*tw)+')';
+    ctx.beginPath(); ctx.arc(sx, sy, 2.1, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(215,255,140,'+(0.05+0.16*tw)+')';
+    ctx.beginPath(); ctx.arc(sx, sy, 5.5, 0, Math.PI*2); ctx.fill();
+  }
+}
+// 정글 나무 한 그루 : 굵은 줄기 + 우산 canopy + 줄기를 휘감은 덩굴
+function drawJungleTree(x, hv, idx){
+  const baseY = H-26, topY = 120 + hv*70, tw = 22 + hv*16;
+  // 줄기 + 뿌리 벌어짐
+  ctx.fillStyle='#1a130a'; ctx.fillRect(x-tw/2, topY, tw, baseY-topY);
+  ctx.beginPath(); ctx.moveTo(x-tw/2-12, baseY); ctx.lineTo(x-tw/2, topY+30);
+  ctx.lineTo(x+tw/2, topY+30); ctx.lineTo(x+tw/2+12, baseY); ctx.closePath(); ctx.fill();
+  // 가지
+  ctx.strokeStyle='#1a130a'; ctx.lineWidth=5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(x, topY+40); ctx.lineTo(x-tw-8, topY-14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, topY+26); ctx.lineTo(x+tw+10, topY-24); ctx.stroke();
+  // canopy 블롭
+  ctx.fillStyle='#13260b';
+  for(const bl of [[0,-16,58+hv*20],[-tw-10,-8,36],[tw+12,-16,40]]){
+    ctx.beginPath(); ctx.ellipse(x+bl[0], topY+bl[1]-30, bl[2], bl[2]*0.62, 0, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.fillStyle='#1a3310';
+  ctx.beginPath(); ctx.ellipse(x-6, topY-52, 40+hv*12, 24, 0, 0, Math.PI*2); ctx.fill();
+  // 줄기를 휘감는 덩굴
+  ctx.strokeStyle='rgba(52,80,32,0.8)'; ctx.lineWidth=2.5;
+  for(let w2=0; w2<3; w2++){
+    const wy = topY+34 + w2*46 + bhash(idx*7+w2)*20;
+    ctx.beginPath(); ctx.moveTo(x-tw/2-3, wy);
+    ctx.bezierCurveTo(x, wy+10, x, wy-10, x+tw/2+3, wy+4); ctx.stroke();
+  }
+}
+
 function drawTiles(){
   const c0 = Math.max(0, Math.floor(camX/TILE)-1);
   const c1 = Math.min(COLS-1, Math.floor((camX+W)/TILE)+1);
@@ -1407,6 +1683,18 @@ function drawTiles(){
       const ch = level[r][c];
       const x = c*TILE-camX, y = r*TILE;
       if(ch==='#'){
+        if(stage===2){
+          // [S2] 흙바닥 + 잔디
+          ctx.fillStyle = (r+(c>>1))%2 ? '#3a2e1c' : '#443623';
+          ctx.fillRect(x,y,TILE,TILE);
+          if(r-1<0 || !isSolidAt(c, r-1)){          // 위가 뚫려 있으면 잔디 돋움
+            ctx.fillStyle='#3f6b28'; ctx.fillRect(x,y,TILE,6);
+            ctx.fillStyle='#548a34';
+            ctx.fillRect(x+4,y-3,2,5); ctx.fillRect(x+13,y-4,2,6); ctx.fillRect(x+24,y-2,2,4);
+          }
+          ctx.fillStyle='rgba(0,0,0,0.18)';
+          ctx.fillRect(x+5,y+12,9,3); ctx.fillRect(x+17,y+21,8,3);
+        } else {
         // 돌 블록
         ctx.fillStyle = (r+ (c>>1))%2 ? '#4d4029' : '#574933';
         ctx.fillRect(x,y,TILE,TILE);
@@ -1417,7 +1705,17 @@ function drawTiles(){
         ctx.fillStyle='rgba(0,0,0,0.15)';
         ctx.fillRect(x+6,y+10,10,3);
         ctx.fillRect(x+16,y+22,8,3);
+        }
       } else if(ch==='K'){
+        if(stage===2){
+          // [S2] 통나무 바닥
+          ctx.fillStyle = ((r^c)&1) ? '#6b4a26' : '#785630';
+          ctx.fillRect(x,y,TILE,TILE);
+          ctx.strokeStyle='rgba(30,18,6,0.55)'; ctx.lineWidth=1;
+          ctx.strokeRect(x+0.5,y+0.5,TILE-1,TILE-1);
+          ctx.fillStyle='rgba(30,18,6,0.4)';
+          ctx.fillRect(x+4,y+14,TILE-8,2);
+        } else {
         // 용암 위 해골 섬(뼈 타일)
         ctx.fillStyle = ((r^c)&1) ? '#cdc6b6' : '#d8d2c3';
         ctx.fillRect(x,y,TILE,TILE);
@@ -1427,6 +1725,20 @@ function drawTiles(){
         ctx.fillStyle='#3a2e18';
         ctx.beginPath(); ctx.arc(x+10,y+12,3,0,Math.PI*2); ctx.arc(x+22,y+12,3,0,Math.PI*2); ctx.fill();
         ctx.fillRect(x+8,y+20,2,6); ctx.fillRect(x+13,y+20,2,6); ctx.fillRect(x+18,y+20,2,6); ctx.fillRect(x+23,y+20,2,6);
+        }
+      } else if(ch==='W'){
+        // ★ [S2] 넝쿨 장애물 : 채찍/탄환으로 절단 가능 (isSolidAt에서 고체 취급)
+        ctx.fillStyle='#1c2a12'; ctx.fillRect(x,y,TILE,TILE);
+        ctx.strokeStyle='#4a6b26'; ctx.lineWidth=3; ctx.lineCap='round';
+        for(let k=0;k<3;k++){
+          ctx.beginPath(); ctx.moveTo(x+6+k*10, y);
+          ctx.bezierCurveTo(x+2+k*10, y+12, x+12+k*10, y+20, x+6+k*10, y+TILE);
+          ctx.stroke();
+        }
+        ctx.fillStyle='#5a8a30';
+        for(let k=0;k<4;k++){
+          ctx.beginPath(); ctx.ellipse(x+8+k*6, y+6+(k%2)*16, 4, 2.5, 0.7, 0, Math.PI*2); ctx.fill();
+        }
       } else if(ch==='D'){
         // 신전의 문 (doorLift만큼 위로 슬라이드하여 열림)
         if(!doorOpen || doorLift>0){
@@ -1444,6 +1756,13 @@ function drawTiles(){
       } else if(ch==='^'){
         drawSpike(x,y);
       } else if(ch==='L'){
+        if(stage===2){
+          // [S2] 덩굴 로프 사다리
+          ctx.fillStyle='rgba(52,80,32,0.7)';
+          ctx.fillRect(x+13, y+1, 6, TILE-2);
+          ctx.fillStyle='rgba(70,104,44,0.9)';
+          for(let yy=4; yy<TILE; yy+=9) ctx.fillRect(x+6, y+yy, TILE-12, 4);
+        } else {
         // 사다리(덩굴): 높이 5칸 이상 벽을 타고 오르는 지지대
         ctx.fillStyle='rgba(70,50,25,0.45)';
         ctx.fillRect(x+14, y+1, 4, TILE-2);        // 중앙 세로대
@@ -1451,6 +1770,7 @@ function drawTiles(){
         for(let yy=4; yy<TILE; yy+=9) ctx.fillRect(x+6, y+yy, TILE-12, 3);   // 가로대
         ctx.fillStyle='rgba(160,140,60,0.5)';      // 덩굴 강조
         ctx.fillRect(x+17, y+6, 3, 4); ctx.fillRect(x+17, y+18, 3, 4);
+        }
       } else if(ch==='S'){
         // 스위치 플레이트
         const active = gateOpen;
@@ -1473,8 +1793,18 @@ function drawTiles(){
   }
 }
 function drawLavaTile(x,y){
-  // 굽이치는 용암 배경 (보스 어레나 아래)
+  // 굽이치는 용암 배경 (보스 어레나 아래) / [S2] 늪지물
   const t = performance.now()*0.001;
+  if(stage===2){
+    ctx.fillStyle = ((((x>>5)+(Math.floor(t*2)&1))&1) ? '#123038' : '#173b46');
+    ctx.fillRect(x,y,TILE,TILE);
+    ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect(x,y,TILE,2);
+    ctx.fillStyle='rgba(140,220,230,0.25)';
+    const bx2 = x+10 + ((Math.sin(x*0.13 + t*2.2 + y)*6)|0);
+    const by2 = y+14 + ((Math.cos(x*0.09 + t*1.6 + y)*5)|0);
+    ctx.beginPath(); ctx.arc(bx2, by2, 2.4, 0, Math.PI*2); ctx.fill();
+    return;
+  }
   ctx.fillStyle = ((((x>>5)+(Math.floor(t*2)&1))&1) ? '#7a2008' : '#8a2a0a');
   ctx.fillRect(x,y,TILE,TILE);
   ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect(x,y,TILE,2);       // 위쪽 살짝 어둡게
@@ -1484,6 +1814,22 @@ function drawLavaTile(x,y){
   ctx.beginPath(); ctx.arc(bx, by, 3, 0, Math.PI*2); ctx.fill();   // 버블
 }
 function drawSpike(x,y){
+  if(stage===2){
+    // [S2] 가시덤불 (독가시)
+    ctx.fillStyle='#3c4c1e';
+    ctx.beginPath();
+    ctx.moveTo(x+2, y+TILE);
+    ctx.lineTo(x+TILE/2, y+6);
+    ctx.lineTo(x+TILE-2, y+TILE);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#5c7a2c';
+    ctx.beginPath();
+    ctx.moveTo(x+2, y+TILE);
+    ctx.lineTo(x+TILE/2, y+6);
+    ctx.lineTo(x+TILE*0.3, y+TILE);
+    ctx.closePath(); ctx.fill();
+    return;
+  }
   ctx.fillStyle='#9a8a66';  ctx.beginPath();
   ctx.moveTo(x+2, y+TILE);
   ctx.lineTo(x+TILE/2, y+8);
@@ -1580,6 +1926,44 @@ function drawPlatform(pl){
   ctx.fillStyle='rgba(0,0,0,0.4)';
   ctx.fillRect(pl.x-camX, pl.y+pl.h-2, pl.w, 2);
 }
+// ★ [S2] 그네 넝쿨 : 나뭇가지에 매달린 채 좌우로 흔들리는 타잔 넝쿨
+function drawVineSwing(v){
+  const sx = v.px - camX, sy = v.py;
+  const ex = v.px + Math.sin(v.ang)*v.len - camX, ey = v.py + Math.cos(v.ang)*v.len;
+  // 고정 가지
+  ctx.fillStyle='#241a10'; ctx.fillRect(sx-16, sy-12, 32, 12);
+  ctx.fillStyle='#3a2a16'; ctx.fillRect(sx-16, sy-12, 32, 4);
+  ctx.strokeStyle='rgba(70,104,44,0.9)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(sx-16, sy-8); ctx.lineTo(sx+16, sy-10); ctx.stroke();
+  // 줄기 (진행 방향에 수직으로 살짝 휘어짐)
+  const mx=(sx+ex)/2 - (ey-sy)*0.06, my=(sy+ey)/2 + (ex-sx)*0.06;
+  ctx.strokeStyle='#3e5a22'; ctx.lineWidth=4.5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(sx,sy); ctx.quadraticCurveTo(mx,my,ex,ey); ctx.stroke();
+  ctx.strokeStyle='#557a30'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(sx,sy); ctx.quadraticCurveTo(mx-2,my-2,ex,ey); ctx.stroke();
+  // 잎사귀
+  ctx.fillStyle='#4a7a28';
+  for(let k=1;k<=4;k++){
+    const tt=k/5, lx=sx+(ex-sx)*tt, ly=sy+(ey-sy)*tt;
+    ctx.beginPath(); ctx.ellipse(lx+(k%2?7:-7), ly, 6, 3, (k%2?0.7:-0.7), 0, Math.PI*2); ctx.fill();
+  }
+  // 잡는 매듭
+  ctx.fillStyle='#2c4018'; ctx.beginPath(); ctx.arc(ex, ey, 6.5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle='#5a8a30'; ctx.beginPath(); ctx.arc(ex-2, ey-2, 2.2, 0, Math.PI*2); ctx.fill();
+}
+// ★ [S2] 원주민 독침 : 연록색 바늘 (잔상 + 침)
+function drawDart(d){
+  const x = d.x - camX;
+  const sg = Math.sign(d.vx);
+  ctx.strokeStyle='rgba(160,230,120,0.45)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(x - sg*14, d.y); ctx.lineTo(x, d.y); ctx.stroke();
+  ctx.fillStyle='#8fd44a';
+  ctx.beginPath();
+  ctx.moveTo(x + sg*7, d.y);
+  ctx.lineTo(x - sg*3, d.y-2.4); ctx.lineTo(x - sg*3, d.y+2.4);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#e8ffd0'; ctx.fillRect(x - sg*3, d.y-1.2, 5, 2.4);
+}
 function drawBlock(b){
   ctx.fillStyle='#6b5a3a';
   ctx.fillRect(b.x-camX, b.y, b.w, b.h);
@@ -1597,6 +1981,10 @@ function drawEnemy(e){
   if(e.f<0) ctx.scale(-1,1);
   if(e.kind==='fly'){
     drawFlyer(e);
+  } else if(e.native){
+    // ★ [S2] 독침 원주민 : 취사군(blowgun)을 든 정글 사냥꾼 (모든 근접 유형 공용 스킨)
+    drawGuardBody(14, e.y, 1, false, { armor:'#9a6a3e', trim:'#3e6b2a', helm:'#7a4a28',
+      native:true, aim:(e.aim||0)>0, flash:(e.kind==='charge'&&e.st==='tele') });
   } else if(e.kind==='jump'){
     // 창을 든 초록 부족 전사(점퍼)
     drawGuardBody(14, e.y, 1, false, { armor:'#3f6b2a', trim:'#5a8a3a', helm:'#1c2a14', spear:true });
@@ -1630,7 +2018,8 @@ function drawGuardBody(px, py, scale, isBoss, suit){
   const helm  = suit.helm || '#000000';
   ctx.save(); ctx.translate(px,py); ctx.scale(scale,scale); ctx.translate(-14,0);
   // 다리
-  ctx.fillStyle='#2a2620'; ctx.fillRect(10,34,7,10); ctx.fillRect(17,34,7,10);
+  ctx.fillStyle = suit.native ? '#7a4a28' : '#2a2620';
+  ctx.fillRect(10,34,7,10); ctx.fillRect(17,34,7,10);
   // 몸 - 갑옷(유형별 색)
   ctx.fillStyle=armor; ctx.fillRect(8,12,19,24);
   ctx.fillStyle=trim; ctx.fillRect(8,12,19,8);
@@ -1641,7 +2030,13 @@ function drawGuardBody(px, py, scale, isBoss, suit){
   ctx.fillRect(4,14,6,5);
   // 무기
   if(!isBoss){
-    if(suit.spear){   // 점퍼: 창
+    if(suit.native){
+      // ★ [S2] 취사군(블로우건) : 대나무 통 + 조준 시 침 끝 반짝임
+      ctx.fillStyle='#6b4a26'; ctx.fillRect(20, 5, 30, 3.4);
+      ctx.fillStyle='#8a6a3a'; ctx.fillRect(18, 4, 4, 6);
+      if(suit.aim){ ctx.fillStyle='#bfe89a'; ctx.beginPath(); ctx.arc(52, 6.7, 2.2, 0, Math.PI*2); ctx.fill(); }
+    }
+    else if(suit.spear){   // 점퍼: 창
       ctx.fillStyle='#8a6a3a'; ctx.fillRect(24,2,3,26);
       ctx.fillStyle='#dde3e8'; ctx.fillRect(23,0,5,6);
     } else {          // 워커: 검
@@ -1650,10 +2045,19 @@ function drawGuardBody(px, py, scale, isBoss, suit){
     }
   }
   // 머리
+  if(suit.native){
+    // ★ [S2] 원주민 : 맨머리 + 붉은 머리띠 + 깃털
+    ctx.fillStyle='#9a6a3e'; ctx.beginPath(); ctx.arc(18, 6, 7, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='#b03030'; ctx.fillRect(11, 0, 14, 3);
+    ctx.fillStyle='#e04838'; ctx.beginPath(); ctx.moveTo(15,-1); ctx.lineTo(13,-10); ctx.lineTo(18,-2); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#f0c030'; ctx.beginPath(); ctx.moveTo(21,-1); ctx.lineTo(23,-9); ctx.lineTo(24,-1); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#1a120a'; ctx.beginPath(); ctx.arc(20, 6, 1.5, 0, Math.PI*2); ctx.fill();
+  } else {
   ctx.fillStyle=helm; // 헬멧
   ctx.beginPath(); ctx.arc(18,5,8,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='#c9b08a'; ctx.beginPath(); ctx.arc(18,7,5,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='#6b1800'; ctx.beginPath(); ctx.arc(18,-1,7,0,Math.PI); ctx.fill();
+  }
   // 뿔(차저)
   if(suit.horns){
     ctx.fillStyle='#e8e2d0';
@@ -1676,10 +2080,11 @@ function drawBoss(){
     ctx.translate(17, 58); ctx.rotate(-ease*1.38); ctx.translate(-17, -58);
   }
   const flash = b.hitFx>0;
-  const bone  = flash? '#fffbe8' : '#e9e2d0';   // 뼈 색(피격 시 깜빡)
-  const shade = flash? '#f2eab8' : '#cfc5a8';
+  const s2 = stage===2;                             // ★ [S2] 정글의 족장 스킨
+  const bone  = flash? '#fffbe8' : (s2? '#a87a48' : '#e9e2d0');   // 뼈/피부 색(피격 시 깜빡)
+  const shade = flash? '#f2eab8' : (s2? '#8a5f34' : '#cfc5a8');
   const dark  = '#201812';
-  const gold  = '#d9b23a';
+  const gold  = s2? '#e04838' : '#d9b23a';          // S2=붉은 깃털 왕관
 
   // 상태별 검 각도 (로컬 +x=플레이어 방향)
   let sw = 0.28 + Math.sin(b.walk*0.5)*0.12;   // 대기 자세
@@ -1742,9 +2147,9 @@ function drawBoss(){
 
   // 큰 검 (손잡이 기준으로 sw 각도로 휘두름)
   ctx.save(); ctx.translate(25,20); ctx.rotate(sw);
-  ctx.fillStyle = flash? '#fffbe8' : '#d7dde4';
+  ctx.fillStyle = flash? '#fffbe8' : (stage===2? '#b98a4e' : '#d7dde4');   // S2=나무 칼
   ctx.fillRect(0,-2.4, 32, 4.8);                                  // 칼날
-  ctx.fillStyle='#9fb3c0'; ctx.fillRect(16,-2.4, 16, 1.5);        // 칼날 하이라이트
+  ctx.fillStyle= stage===2? '#8a6a3a' : '#9fb3c0'; ctx.fillRect(16,-2.4, 16, 1.5);        // 칼날 하이라이트
   ctx.fillStyle=gold; ctx.fillRect(-5,-5, 6,10);                 // 가드(황금)
   ctx.fillStyle='#5a3a1a'; ctx.fillRect(-10,-2, 6,4);            // 손잡이
   ctx.restore();
@@ -2022,14 +2427,9 @@ function drawHUD(){
     ctx.font='bold 15px sans-serif'; ctx.textAlign='center';
     ctx.fillText(toast, W/2, 76);
   }
-  // 디버그(원인 판별용) : 플레이어/적 좌표
-  const e0 = enemies[0];
-  ctx.fillStyle='#9fa06a'; ctx.font='11px monospace';
-  ctx.fillText('dbg P y='+p.y.toFixed(0)+' g='+(p.onGround?'O':'x')+' vy='+p.vy.toFixed(1)
-    +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.45]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.46]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2053,7 +2453,7 @@ function drawBossBar(){
   ctx.fillRect(W/2-206, 38, 412*r, 18);
   ctx.fillStyle='#fff';
   ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
-  ctx.fillText('사원의 수호자', W/2, 52);
+  ctx.fillText(stage===2 ? '정글의 족장' : '사원의 수호자', W/2, 52);
 }
 function drawMessage(msg, dur){
   ctx.fillStyle='rgba(0,0,0,0.5)';
@@ -2085,7 +2485,7 @@ function drawMenu(){
   ctx.font='bold 40px serif';
   ctx.fillText('잃어버린 사원', W/2, 90);
   ctx.font='20px serif'; ctx.fillStyle='#c9a86a';
-  ctx.fillText('— 채찍의 탐험가 · Stage 1 —', W/2, 126);
+  ctx.fillText('— 채찍의 탐험가 · Stage 1 → 2 —', W/2, 126);
   // 조작법 (표 형태로 명확하게) - 소개 문구 없이 위쪽부터 배치
   const ctrl = [
     ['← →', '좌우 이동'],
@@ -2113,7 +2513,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.45 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.46 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
@@ -2130,7 +2530,7 @@ function drawClear(){
   ctx.fillRect(0,0,W,H);
   ctx.textAlign='center';
   ctx.fillStyle='#ffe36b'; ctx.font='bold 46px serif';
-  ctx.fillText('미궁 탐사 완료!', W/2, 180);
+  ctx.fillText(stage===2? '정글 탐사 완료!' : '미궁 탐사 완료!', W/2, 180);
   ctx.font='20px serif'; ctx.fillStyle='#c9a86a';
   ctx.fillText('인디아나존스의 탐험은 계속된다', W/2, 240);
   ctx.font='16px serif'; ctx.fillStyle='#ffd';
@@ -2138,7 +2538,7 @@ function drawClear(){
   ctx.font='14px sans-serif'; ctx.fillStyle='#b99a6a';
   ctx.fillText('누적 클리어: '+totalClears+'회', W/2, 336);
   ctx.font='bold 22px sans-serif'; ctx.fillStyle='#ffe29a';
-  ctx.fillText('스테이지 1 클리어!', W/2, 360);
+  ctx.fillText('스테이지 '+(stage===2?2:1)+' 클리어!', W/2, 360);
   // 다음 챕터 안내
   ctx.font='bold 20px sans-serif'; ctx.fillStyle='#e8b45a';
   ctx.fillText('— 다음 챕터 제작 중 —', W/2, 396);
@@ -2217,6 +2617,101 @@ function drawCredits(ft, t){
   }
   ctx.restore();
 }
+// ============================================================
+//  ★ Stage 1 → 2 연출 : 사원을 빠져나와 노을 진 밀림으로 걸어가는 인디아나 존스
+// ============================================================
+function drawInterlude(){
+  const t = interT;
+  // 노을 지는 밀림 하늘
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#241105'); g.addColorStop(0.45,'#6a3410');
+  g.addColorStop(0.8,'#c97a2a'); g.addColorStop(1,'#3a1c08');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // 지는 해
+  ctx.fillStyle='rgba(255,230,170,0.5)';
+  ctx.beginPath(); ctx.arc(W*0.62, 330, 66, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle='rgba(255,205,120,0.95)';
+  ctx.beginPath(); ctx.arc(W*0.62, 330, 48, 0, Math.PI*2); ctx.fill();
+  // 원경 능선 (두 겹)
+  ctx.fillStyle='#2c1607';
+  ctx.beginPath(); ctx.moveTo(0,H);
+  for(let x=0;x<=W;x+=48) ctx.lineTo(x, 340 - (Math.sin(x*0.008+2)*30 + Math.sin(x*0.02)*14 + 40));
+  ctx.lineTo(W,H); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#1c0e05';
+  ctx.beginPath(); ctx.moveTo(0,H);
+  for(let x=0;x<=W;x+=40) ctx.lineTo(x, 420 - (Math.sin(x*0.011+5)*24 + Math.sin(x*0.027)*10 + 30));
+  ctx.lineTo(W,H); ctx.closePath(); ctx.fill();
+  // 밀림 나무 실루엣 (좌우 프레임)
+  ctx.fillStyle='#120a04';
+  for(const [tx, sc] of [[60,1.2],[W-80,1.4],[W*0.28,0.8],[W*0.82,1.0]]){
+    ctx.fillRect(tx-5*sc, 210, 10*sc, 270);
+    ctx.beginPath(); ctx.ellipse(tx, 200, 70*sc, 46*sc, 0, 0, Math.PI*2); ctx.fill();
+  }
+  // 바닥 길
+  ctx.fillStyle='#160b03'; ctx.fillRect(0, 480, W, H-480);
+  ctx.fillStyle='rgba(255,180,90,0.08)'; ctx.fillRect(0, 480, W, 3);
+  // 걸어가는 인디아나 실루엣
+  const wx = 130 + Math.min(1, t/5.2) * (W*0.52 - 130);
+  drawIndyWalk(wx, 480, t);
+  // 자막 (순차 페이드인)
+  ctx.textAlign='center';
+  const fade = s3 => Math.max(0, Math.min(1, (t-s3)/0.8));
+  if(t>0.8){
+    ctx.globalAlpha = fade(0.8);
+    ctx.fillStyle='#ffe9c8'; ctx.font='22px serif';
+    ctx.fillText('사원을 빠져나온 인디아나 존스…', W/2, 180);
+  }
+  if(t>2.0){
+    ctx.globalAlpha = fade(2.0);
+    ctx.fillStyle='#e8c9a0'; ctx.font='17px serif';
+    ctx.fillText('그의 발길은 다시 밀림으로 향한다', W/2, 214);
+  }
+  if(t>3.2){
+    ctx.globalAlpha = fade(3.2);
+    ctx.fillStyle='#ffe36b'; ctx.font='bold 40px serif';
+    ctx.fillText('— STAGE 2 —', W/2, 300);
+    ctx.fillStyle='#c9e89a'; ctx.font='bold 24px serif';
+    ctx.fillText('정글의 원주민', W/2, 340);
+  }
+  ctx.globalAlpha = 1;
+  if(t>4.4){
+    ctx.globalAlpha = fade(4.4);
+    const pulse = Math.floor(performance.now()/500)%2===0;
+    ctx.fillStyle = pulse? '#fff' : '#ffd95a'; ctx.font='bold 17px sans-serif';
+    ctx.fillText('ENTER → 바로 시작', W/2, 560);
+    ctx.globalAlpha = 1;
+  }
+  // 시작 직후 검은 막 걷힘 / 종료 직전 검은 막 내림 (fadeout)
+  if(t<0.8){ ctx.fillStyle='rgba(0,0,0,'+(1-t/0.8)+')'; ctx.fillRect(0,0,W,H); }
+  if(t>6.3){ ctx.fillStyle='rgba(0,0,0,'+Math.min(1,(t-6.3)/0.5)+')'; ctx.fillRect(0,0,W,H); }
+}
+// 실루엣 걷는 인디아나 : 페도라 + 가방 + 흔들리는 팔다리
+function drawIndyWalk(x, groundY, t){
+  const ph = t*7.5;
+  const sw = Math.sin(ph), sw2 = Math.sin(ph+Math.PI);
+  ctx.save(); ctx.translate(x, groundY);
+  ctx.fillStyle='#0c0702'; ctx.strokeStyle='#0c0702';
+  // 다리
+  ctx.lineWidth=5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(0,-20); ctx.lineTo(sw*9, -2); ctx.lineTo(sw*11, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,-20); ctx.lineTo(sw2*9, -2); ctx.lineTo(sw2*11, 0); ctx.stroke();
+  // 몸통 (코트)
+  ctx.beginPath(); ctx.moveTo(-7,-40); ctx.lineTo(7,-40); ctx.lineTo(9,-18); ctx.lineTo(-9,-18); ctx.closePath(); ctx.fill();
+  // 가방 끈 + 가방
+  ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(-6,-38); ctx.lineTo(7,-24); ctx.stroke();
+  ctx.fillStyle='#1a1206'; ctx.fillRect(6,-26,10,12);
+  // 팔
+  ctx.lineWidth=4;
+  ctx.beginPath(); ctx.moveTo(0,-36); ctx.lineTo(sw2*8,-24); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,-36); ctx.lineTo(sw*8,-24); ctx.stroke();
+  // 머리 + 페도라
+  ctx.fillStyle='#0c0702';
+  ctx.beginPath(); ctx.arc(0,-46,6,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(0,-50,12,2.5,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(0,-52,6,Math.PI,0); ctx.fill();
+  ctx.restore();
+}
 function drawGameOver(){
   // GTA풍 연출: 화면이 서서히 검게/세피아로 페이드아웃 → WASTED 떠오름
   const t = Math.min(1, overTimer/1.2);            // 1.2초 페이드
@@ -2232,7 +2727,7 @@ function drawGameOver(){
     ctx.fillText('Wasted', W/2, H/2-12);
     ctx.globalAlpha = wt;
     ctx.font='16px sans-serif'; ctx.fillStyle='#e8d8b8';
-    ctx.fillText('신전의 어둠이 당신을 집어삼켰다…', W/2, H/2+46);
+    ctx.fillText(stage===2? '정글의 독침이 당신을 잠재웠다…' : '신전의 어둠이 당신을 집어삼켰다…', W/2, H/2+46);
     ctx.font='bold 22px sans-serif'; ctx.fillStyle='#ffe29a';
     ctx.fillText('ENTER → 다시 도전', W/2, H/2+100);
     ctx.globalAlpha = 1;
@@ -2250,7 +2745,7 @@ function loop(now){
   if(paused && state==='play'){ render(); return; }   // 일시정지: 갱신 생략, 화면 유지
   if(hitstop>0){ hitstop -= dt; render(); return; }   // 히트스톱: 몇 프레임 정지 (렌더는 유지)
   if(state==='play') update(dt);
-  else if(state==='clear' || state==='gameover') update(dt);
+  else if(state==='clear' || state==='gameover' || state==='interlude') update(dt);
   render();
 }
 // 초기화
