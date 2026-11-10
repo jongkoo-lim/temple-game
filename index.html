@@ -42,6 +42,7 @@ let camX = 0;
 let score = 0, gems = 0;
 let clearTimer = 0, overTimer = 0;
 let creditT = 0;                    // 엔딩 크레딧 스크롤 시간
+let creditsOnly = false;            // 크레딧 단독 재생 모드 (메뉴 C키 / URL ?credits=1)
 let paused = false;                 // P 키 일시정지
 let hitstop = 0;                    // 히트스톱: 타격 순간 게임을 몇 프레임 멈춰 무게감 부여
 let hats = [];                      // 벗겨져 날아간 인디아나 존스 모자 (줍기 가능)
@@ -474,6 +475,11 @@ window.addEventListener('keydown', e=>{
     if(state==='menu') startGame();
     if(state==='clear'||state==='gameover') restart();
   }
+  // 메뉴에서 C : 엔딩 크레딧만 바로 보기
+  if(e.code==='KeyC' && state==='menu'){
+    startGame();                       // 상태 초기화 후
+    creditsOnly = true; state='clear'; creditT=3; clearTimer=0;
+  }
   // 일시정지 : 플레이 중에만 P로 토글
   if(e.code==='KeyP' && state==='play'){
     paused = !paused;
@@ -495,6 +501,7 @@ function startGame(){
   deadInitDone = false; chest = null;
   score=0; gems=0; state='play'; startTime=performance.now();
   creditT = 0;                    // 엔딩 크레딧 타이머 초기화
+  creditsOnly = false;            // 크레딧 단독 모드 해제
   camX = Math.max(0, Math.min(p.x-W/2, COLS*TILE-W));
 }
 function restart(){ startGame(); }
@@ -2022,7 +2029,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.40]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.41]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2092,6 +2099,7 @@ function drawMenu(){
     ['P', '일시정지'],
     ['R', '처음부터 재시작'],
     ['Enter', '게임 시작'],
+    ['C', '엔딩 크레딧 보기'],
   ];
   ctx.font='bold 15px sans-serif';
   ctrl.forEach((c2, i)=>{
@@ -2113,9 +2121,19 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.40 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.41 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
+  // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
+  if(creditsOnly){
+    ctx.fillStyle='rgba(5,3,1,1)';
+    ctx.fillRect(0,0,W,H);
+    drawCredits(1, creditT - 3);
+    ctx.textAlign='center';
+    ctx.fillStyle='#8a7455'; ctx.font='13px sans-serif';
+    ctx.fillText('ENTER → 게임 시작', W/2, H-20);
+    return;
+  }
   ctx.fillStyle='rgba(0,0,0,0.55)';
   ctx.fillRect(0,0,W,H);
   ctx.textAlign='center';
@@ -2142,67 +2160,70 @@ function drawClear(){
     const ft = Math.min(1, (creditT-3)/1.2);                 // 크레딧 화면 페이드인
     ctx.fillStyle='rgba(5,3,1,'+(0.72*ft)+')';
     ctx.fillRect(0,0,W,H);
-    ctx.textAlign='center';
-    // 크레딧 줄 구성
-    const lines = [
-      ['— LOST TEMPLE —', '22 serif gold'],
-      ['잃어버린 사원', '20 serif dim'],
-      ['', ''],
-      ['S T A F F', '18 sans amber'],
-      ['', ''],
-      ['기획 · 개발', '13 sans dim'],
-      ['jongkoo-lim × OpenCode', '17 sans light'],
-      ['', ''],
-      ['게임 디자인 · 레벨 디자인', '13 sans dim'],
-      ['jongkoo-lim', '17 sans light'],
-      ['', ''],
-      ['아트 · 배경', '13 sans dim'],
-      ['Canvas 2D', '17 sans light'],
-      ['', ''],
-      ['사운드', '13 sans dim'],
-      ['WebAudio', '17 sans light'],
-      ['', ''],
-      ['플레이해 주셔서 감사합니다', '22 serif gold'],
-      ['THANK YOU FOR PLAYING', '13 sans dim'],
-      ['', ''],
-      ['', ''],
-      ['In Memoriam', '16 sans amber'],
-      ['', ''],
-    ];
-    const memoIdx = lines.length;                            // 헌정 멘트는 마지막 줄
-    const LH = 34;
-    const speed = 42;
-    // 스크롤량: 마지막 줄이 화면 중앙에 오면 정지
-    const scrollMax = H + 60 + (memoIdx-1)*LH - H/2;
-    const scroll = Math.min((creditT-3)*speed, scrollMax);
-    ctx.save();
-    ctx.globalAlpha = ft;
-    for(let i=0;i<lines.length;i++){
-      const y = H + 60 + i*LH - scroll;
-      if(y < -20 || y > H+40) continue;
-      const [txt, style] = lines[i];
-      if(!txt) continue;
-      if(style.includes('gold'))      { ctx.fillStyle='#ffe36b'; ctx.font='bold 22px serif'; }
-      else if(style.includes('dim'))  { ctx.fillStyle='#b99a6a'; ctx.font='14px sans-serif'; }
-      else if(style.includes('amber')){ ctx.fillStyle='#e8b45a'; ctx.font='bold 18px sans-serif'; }
-      else if(style.includes('light')){ ctx.fillStyle='#e8d8b8'; ctx.font='17px sans-serif'; }
-      ctx.fillText(txt, W/2, y);
-    }
-    // 헌정 멘트 (마지막, 정지 시 중앙) - 은은한 글로우와 함께
-    const my = H + 60 + memoIdx*LH - scroll;
-    if(my > -20 && my < H+60){
-      const glow = ctx.createRadialGradient(W/2, my, 4, W/2, my, 130);
-      glow.addColorStop(0,'rgba(255,220,120,0.22)');
-      glow.addColorStop(1,'rgba(255,220,120,0)');
-      ctx.fillStyle=glow;
-      ctx.beginPath(); ctx.arc(W/2, my, 130, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle='#3a2c14'; ctx.font='bold 26px serif';
-      ctx.fillText('채승주 파트장님을 기억합니다', W/2+1.5, my+1.5);
-      ctx.fillStyle='#ffe9a8'; ctx.font='bold 26px serif';
-      ctx.fillText('채승주 파트장님을 기억합니다', W/2, my);
-    }
-    ctx.restore();
+    drawCredits(ft, creditT - 3);
   }
+}
+// 엔딩 크레딧 스태프 롤 (t = 스크롤 시작 후 경과 시간)
+function drawCredits(ft, t){
+  ctx.textAlign='center';
+  const lines = [
+    ['— LOST TEMPLE —', '22 serif gold'],
+    ['잃어버린 사원', '20 serif dim'],
+    ['', ''],
+    ['S T A F F', '18 sans amber'],
+    ['', ''],
+    ['기획 · 개발', '13 sans dim'],
+    ['jongkoo-lim × OpenCode', '17 sans light'],
+    ['', ''],
+    ['게임 디자인 · 레벨 디자인', '13 sans dim'],
+    ['jongkoo-lim', '17 sans light'],
+    ['', ''],
+    ['아트 · 배경', '13 sans dim'],
+    ['Canvas 2D', '17 sans light'],
+    ['', ''],
+    ['사운드', '13 sans dim'],
+    ['WebAudio', '17 sans light'],
+    ['', ''],
+    ['플레이해 주셔서 감사합니다', '22 serif gold'],
+    ['THANK YOU FOR PLAYING', '13 sans dim'],
+    ['', ''],
+    ['', ''],
+    ['In Memoriam', '16 sans amber'],
+    ['', ''],
+  ];
+  const memoIdx = lines.length;                            // 헌정 멘트는 마지막 줄
+  const LH = 34;
+  const speed = 42;
+  // 스크롤량: 마지막 줄이 화면 중앙에 오면 정지
+  const scrollMax = H + 60 + (memoIdx-1)*LH - H/2;
+  const scroll = Math.min(Math.max(0,t)*speed, scrollMax);
+  ctx.save();
+  ctx.globalAlpha = ft;
+  for(let i=0;i<lines.length;i++){
+    const y = H + 60 + i*LH - scroll;
+    if(y < -20 || y > H+40) continue;
+    const [txt, style] = lines[i];
+    if(!txt) continue;
+    if(style.includes('gold'))      { ctx.fillStyle='#ffe36b'; ctx.font='bold 22px serif'; }
+    else if(style.includes('dim'))  { ctx.fillStyle='#b99a6a'; ctx.font='14px sans-serif'; }
+    else if(style.includes('amber')){ ctx.fillStyle='#e8b45a'; ctx.font='bold 18px sans-serif'; }
+    else if(style.includes('light')){ ctx.fillStyle='#e8d8b8'; ctx.font='17px sans-serif'; }
+    ctx.fillText(txt, W/2, y);
+  }
+  // 헌정 멘트 (마지막, 정지 시 중앙) - 은은한 글로우와 함께
+  const my = H + 60 + memoIdx*LH - scroll;
+  if(my > -20 && my < H+60){
+    const glow = ctx.createRadialGradient(W/2, my, 4, W/2, my, 130);
+    glow.addColorStop(0,'rgba(255,220,120,0.22)');
+    glow.addColorStop(1,'rgba(255,220,120,0)');
+    ctx.fillStyle=glow;
+    ctx.beginPath(); ctx.arc(W/2, my, 130, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='#3a2c14'; ctx.font='bold 26px serif';
+    ctx.fillText('채승주 파트장님을 기억합니다', W/2+1.5, my+1.5);
+    ctx.fillStyle='#ffe9a8'; ctx.font='bold 26px serif';
+    ctx.fillText('채승주 파트장님을 기억합니다', W/2, my);
+  }
+  ctx.restore();
 }
 function drawGameOver(){
   // GTA풍 연출: 화면이 서서히 검게/세피아로 페이드아웃 → WASTED 떠오름
@@ -2246,6 +2267,12 @@ function init(){
   collectGemsFromGrid();
   resetPlayer();
   state='menu';
+  // URL ?credits=1 : 엔딩 크레딧만 바로 재생 (공유/시연용)
+  try{
+    if(new URLSearchParams(location.search).get('credits')==='1'){
+      creditsOnly = true; state='clear'; creditT=3; clearTimer=0;
+    }
+  }catch(e){}
   requestAnimationFrame(loop);
 }
 init();
