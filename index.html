@@ -898,11 +898,11 @@ function updateGems(){
     const it=pistolItems[i];
     if(overlap(p,it)){
       if(p.weapon!=='pistol'){
-        p.weapon='pistol'; p.pistolLv=1; p.maxAmmo=3; p.ammo=3; p.reloadT=0;
-        showToast('권총 획득! Lv.1 (탄창 3발, 채찍 사용 불가)', 2.0);
+        p.weapon='pistol'; p.pistolLv=1; p.maxAmmo=5; p.ammo=5; p.reloadT=0;
+        showToast('권총 획득! Lv.1 (탄창 5발, 채찍 사용 불가)', 2.0);
       } else {
         p.pistolLv = Math.min(8, p.pistolLv+1);
-        p.ammo = p.maxAmmo;      // 강화 시 탄창 가득 리필 (탄창은 기본 3발 고정)
+        p.ammo = p.maxAmmo;      // 강화 시 탄창 가득 리필 (탄창은 기본 5발 고정)
         showToast('권총 강화! Lv.'+p.pistolLv+' (동시 발사 +1, 사거리 증가)', 1.8);
       }
       score+=100; sfx('gem'); burst(it.x+10,it.y+10,'#9fb3c0',12);
@@ -2029,7 +2029,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.44]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.45]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2113,7 +2113,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.44 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.45 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
