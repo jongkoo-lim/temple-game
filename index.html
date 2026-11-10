@@ -381,7 +381,7 @@ function buildLevel(){
   // 무기 아이템 - 채찍('w')과 권총('p')은 서로 교체/강화
   //      모두 "점프해서만 먹는" 높이로 배치 (서서 지나가면 머리 위 56px 여백, 점프 정점에서 획득)
   set(16,12,'w');                 // 저지대 (채찍 Lv업)
-  set(43,7,'p');                  // 사다리 뒤 고지대 → 첫 권총
+  set(51,7,'p');                  // 고지대 평지(가시에서 7칸 떨어짐) → 첫 권총 : 의도적 점프로만 획득
   set(69,7,'w');                  // 구덩이1 위 (발판 위에서 점프)
   set(74,6,'p');                  // 디딤돌 위 → 권총
   set(117,7,'p');                 // 구덩이3 위 (발판 위에서 점프, 박쥐 조심)
@@ -2029,7 +2029,7 @@ function drawHUD(){
     +(e0?('  E0 y='+e0.y.toFixed(0)+' E0g='+(e0.onGround?'O':'x')):''), 14, 70);
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.43]', W/2, 22);
+  ctx.fillText('Stage 1 — 잃어버린 신전  [BUILD v2.44]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2113,7 +2113,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.43 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.44 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
