@@ -593,6 +593,8 @@ window.addEventListener('keydown', e=>{
     if(state==='clear'||state==='gameover') restart();
     if(state==='interlude') startStage2();   // 연출 스킵
   }
+  // 메뉴에서 2 : Stage 2부터 바로 시작 (빠른 검증/시연용)
+  if(e.code==='Digit2' && state==='menu'){ startGame(2); }
   // 메뉴에서 C : 엔딩 크레딧만 바로 보기
   if(e.code==='KeyC' && state==='menu'){
     startGame();                       // 상태 초기화 후
@@ -2585,7 +2587,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.48]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.49]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2651,6 +2653,7 @@ function drawMenu(){
     ['P', '일시정지'],
     ['R', '처음부터 재시작'],
     ['Enter', '게임 시작'],
+    ['2', 'Stage 2부터 바로 시작'],
     ['C', '엔딩 크레딧 보기'],
   ];
   ctrl.forEach((c2, i)=>{
@@ -2669,7 +2672,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.48 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.49 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
@@ -2911,10 +2914,13 @@ function init(){
   resetPlayer();
   state='menu';
   // URL ?credits=1 : 엔딩 크레딧만 바로 재생 (공유/시연용)
+  // URL ?stage=2  : Stage 2부터 바로 시작 (빠른 검증용)
   try{
-    if(new URLSearchParams(location.search).get('credits')==='1'){
+    const usp = new URLSearchParams(location.search);
+    if(usp.get('credits')==='1'){
       creditsOnly = true; state='clear'; creditT=3; clearTimer=0;
     }
+    if(usp.get('stage')==='2'){ startGame(2); }
   }catch(e){}
   requestAnimationFrame(loop);
 }
