@@ -19,7 +19,7 @@
 <div id="wrap">
   <canvas id="game" width="960" height="540"></canvas>
   <div id="hintline">
-    <b>←/→ or A/D</b> 이동 · <b>Space / ↑ / W</b> 점프 · <b>J / X / 마우스클릭</b> 채찍 · <b>Enter</b> 시작 · <b>R</b> 리셋
+    <b>←/→ or A/D</b> 이동 · <b>Space / ↑ / W</b> 점프 · <b>J / X / 마우스클릭</b> 채찍 · <b>Enter</b> 시작 · <b>R</b> 리셋 · <b>그네</b> ←/→ 흔들기·↑ 도약·↓ 놓기
   </div>
   <div id="foot">CHANN만화풍 원작(페르시아의 왕자)을 오마주한 인디아나 존스풍 탐험 게임입니다.</div>
 </div>
@@ -97,6 +97,7 @@ let vines = [];                    // [S2] 그네 넝쿨 (구덩이 횡단용)
 let darts = [];                    // [S2] 원주민 독침
 let vineHp = {};                   // [S2] 넝쿨 장애물 타일 체력
 let vineToastDone = false;         // [S2] 넝쿨 잡기 안내 1회 표시
+let popups = [];                   // ★ 점수 팝업 (처치/반격 +N 이 떠오름)
 let toast = null, toastT = 0;
 // 보물 상자 : 보스를 처치하면(1회부터) 쓰러진 자리에서 솟아오르는 특별 보상
 let chest = null;
@@ -415,6 +416,7 @@ function buildLevel(){
   enemies.length=0; platforms.length=0; blocks.length=0; gemsList.length=0; particles.length=0; blades.length=0;
   bullets.length=0; pistolItems.length=0; heartsList.length=0;
   vines.length=0; darts.length=0; vineHp={}; vineToastDone=false;   // [S2]
+  popups.length=0;                                              // ★ 점수 팝업
   boss=null; gateOpen=false; bossActive=false; bossDead=false;
   doorOpen=false; doorLift=0; cutscene=0; csT=0;
 
@@ -590,6 +592,7 @@ function update(dt){
     updateBullets(dt, s);
     updateVines(dt);              // [S2] 그네 넝쿨 흔들림
     updateDarts(dt, s);           // [S2] 원주민 독침
+    updatePopups(dt);             // ★ 점수 팝업
     // 권총 탄약 서서히 장전 (탄창이 비면 완전히 막히지 않게)
     if(p.weapon==='pistol' && p.ammo < p.maxAmmo){
       p.reloadT += dt;
@@ -660,6 +663,16 @@ function updatePlayer(dt, s){
   // ★ [S2] 그네 넝쿨 : 매달린 동안엔 일반 물리 대신 넝쿨 끝점을 따라간다
   if(p.onVine){
     const v = p.onVine;
+    // ↓ 새 누름 : 점프 없이 현재 흔들림 속도만 실어 그냥 놓기 (낮은 곳으로 내려갈 때)
+    const dn = keys['ArrowDown'];
+    if(dn && !p._vdHeld){
+      p._vdHeld = true;
+      const rel = Math.max(-8.5, Math.min(8.5, Math.cos(v.ang)*v.angV*v.len/60*1.2));
+      p.vx = rel; p.vy = 2.5;
+      p.onVine = null; p.vineCd = 0.35;
+      sfx('jump');
+    } else if(!dn){ p._vdHeld = false; }
+    if(p.onVine){
     if(p.jumpBuf > 0){
       // ↑ 새 누름 : 진자의 접선 속도(탄속)를 실어 점프하며 놓는다
       const rel = Math.max(-8.5, Math.min(8.5, Math.cos(v.ang)*v.angV*v.len/60*1.2));
@@ -670,6 +683,7 @@ function updatePlayer(dt, s){
       const ex = v.px + Math.sin(v.ang)*v.len, ey = v.py + Math.cos(v.ang)*v.len;
       p.x = ex - p.w/2; p.y = ey - 8;      // 매듭을 두 손으로 잡은 자세
       p.vx = 0; p.vy = 0; p.onGround = false; p.climbing = false;
+    }
     }
   }
   const onV = !!p.onVine;
@@ -789,7 +803,17 @@ function updatePlayer(dt, s){
           // ★ 처치 넉백: 뒤로 날아가며 산산조각
           e.vx = p.facing*7; e.vy = -6.5;
           burst(e.x+e.w/2, e.y+10, '#d44', 16);
+          addKillScore(e);                              // ★ 처치 점수 +100 팝업
         }
+      }
+    }
+    // ★ [S2] 채찍으로 독침 튕겨내기 : 원주민 독침을 쳐서 상쇄 (+25)
+    for(const d of darts){
+      if(!p.hitSet.has(d) && overlap(hb, {x:d.x-6, y:d.y-3, w:12, h:7})){
+        p.hitSet.add(d);
+        d.life = 0;                                     // 다음 updateDarts에서 제거
+        burst(d.x, d.y, '#a0e678', 8); sfx('block');
+        score += 25; addPopup(d.x, d.y-10, '+25');
       }
     }
     if(boss && !bossDead && boss.hitCd<=0 && overlap(hb, boss)){
@@ -850,10 +874,17 @@ function updateEnemies(dt, s){
     const sameH = Math.abs((p.y+p.h) - (e.y+e.h)) < 34;
 
     if(e.kind==='fly'){
-      // 나는 해골박쥐: 중력 없이 플레이어 쪽으로 떠다니며 사인파로 출렁
+      // 나는 해골박쥐: 평소 제자리에서 부유, 플레이어가 근처(190px)로 오면 다가들고
+      //   지나가면 제자리로 되돌아감 (멀리까지 계속 따라오지 않게)
       e.t += dt;
-      e.f = playerCenter().x > center(e).x ? 1 : -1;
-      e.x += e.f * 1.1 * s;
+      const ecx = center(e).x;
+      if(dist < 190){
+        e.f = playerCenter().x > ecx ? 1 : -1;
+        e.x += e.f * 1.25 * s;
+      } else {
+        const dx = e.mx - ecx;
+        if(Math.abs(dx) > 6){ e.f = dx>0 ? 1 : -1; e.x += e.f * 0.85 * s; }
+      }
       e.y = e.baseY + Math.sin(e.t*2.4)*26;
       if(e.x < e.mx-e.range){ e.x = e.mx-e.range; }
       if(e.x > e.mx+e.range){ e.x = e.mx+e.range; }
@@ -928,6 +959,7 @@ function updateEnemies(dt, s){
       // 밟기(스탬프) 킬
       e.hp=0; p.vy=-8; sfx('jump');
       burst(e.x+e.w/2,e.y+e.h/2,'#d44',14);
+      addKillScore(e);                                  // ★ 처치 점수 +100 팝업
     }
     if(e.hp<=0){ enemies.splice(i,1); }
   }
@@ -1009,9 +1041,18 @@ function updatePlatforms(dt){
 }
 
 // ★ [S2] 그네 넝쿨 물리 : 결정론적 sin 진자 (진폭/속도 일정 → 타이밍 파악 가능)
+//   매달린 채 ←/→ 를 누르면 펌핑: 진자 움직임 방향과 같은 방향이면 진폭 증가(도약거리↑), 반대면 감속
 function updateVines(dt){
   for(const v of vines){
     v.t += dt;
+    if(p.onVine===v){
+      const dir = (keys['ArrowRight']?1:0) - (keys['ArrowLeft']?1:0);
+      if(dir!==0){
+        const hv = Math.cos(v.ang) * v.angV;      // 끝점 수평속도 부호 = 현재 진행 방향
+        if(hv > 0.15)       v.amp = Math.min(1.35, Math.max(0.55, v.amp + (dir>0 ?  0.30 : -0.36)*dt));
+        else if(hv < -0.15) v.amp = Math.min(1.35, Math.max(0.55, v.amp + (dir<0 ?  0.30 : -0.36)*dt));
+      }
+    }
     const a = v.ph + v.t*v.spd;
     v.ang  = v.amp * Math.sin(a);
     v.angV = v.amp * v.spd * Math.cos(a);
@@ -1044,6 +1085,29 @@ function damageVine(c, r, kx){
     burst(cx, cy, '#6a9a3a', 16);
     shake = Math.max(shake, 3);
   }
+}
+// ★ 처치 점수 : 적을 죽이면 +100 점수 팝업
+function addKillScore(e){
+  score += 100;
+  addPopup(e.x + e.w/2, e.y - 6, '+100');
+}
+// ★ 점수 팝업 : 황금색 텍스트가 위로 떠오르며 사라짐
+function addPopup(x, y, txt){ popups.push({ x, y, txt, t:0 }); }
+function updatePopups(dt){
+  for(let i=popups.length-1;i>=0;i--){
+    const u = popups[i];
+    u.t += dt; u.y -= 30*dt;
+    if(u.t > 0.85) popups.splice(i,1);
+  }
+}
+function drawPopups(){
+  ctx.textAlign='center'; ctx.font='bold 13px Arial';
+  for(const u of popups){
+    ctx.globalAlpha = Math.max(0, 1 - u.t/0.85);
+    ctx.fillStyle = '#ffe36b';
+    ctx.fillText(u.txt, u.x - camX, u.y);
+  }
+  ctx.globalAlpha = 1; ctx.textAlign='left';
 }
 function updateGems(){
   for(let i=gemsList.length-1;i>=0;i--){
@@ -1117,6 +1181,7 @@ function updateBullets(dt, s){
           if(e.hp<=0){
             e.vx = bl.vx>0 ? 7 : -7; e.vy = -6.5;      // ★ 처치 넉백
             burst(e.x+e.w/2, e.y+10, '#d44', 16);
+            addKillScore(e);                           // ★ 처치 점수 +100 팝업
           }
           dead = true; break;
         }
@@ -1420,6 +1485,9 @@ function render(){
     ctx.fillStyle = pt.color; ctx.fillRect(pt.x - camX, pt.y, pt.s, pt.s);
   }
   ctx.globalAlpha = 1;
+
+  // ★ 점수 팝업
+  drawPopups();
 
   ctx.restore();
 
@@ -1950,6 +2018,24 @@ function drawVineSwing(v){
   // 잡는 매듭
   ctx.fillStyle='#2c4018'; ctx.beginPath(); ctx.arc(ex, ey, 6.5, 0, Math.PI*2); ctx.fill();
   ctx.fillStyle='#5a8a30'; ctx.beginPath(); ctx.arc(ex-2, ey-2, 2.2, 0, Math.PI*2); ctx.fill();
+  // ★ 매달려 있을 때 : ↑로 놓으면 날아갈 방향/세기 화살표 (릴리즈 타이밍 가이드)
+  if(p.onVine===v){
+    const rel = Math.max(-8.5, Math.min(8.5, Math.cos(v.ang)*v.angV*v.len/60*1.2));
+    const pw = Math.abs(rel);
+    if(pw > 1.2){
+      const d = Math.sign(rel), ay = ey + 48, len = 16 + pw*4.5;
+      const alpha = 0.30 + Math.min(0.5, pw/12);
+      ctx.strokeStyle = 'rgba(255,224,110,' + alpha.toFixed(2) + ')';
+      ctx.fillStyle   = 'rgba(255,224,110,' + alpha.toFixed(2) + ')';
+      ctx.lineWidth = 3; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(ex - d*len, ay); ctx.lineTo(ex + d*(len-10), ay); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ex + d*len, ay);
+      ctx.lineTo(ex + d*(len-10), ay-5);
+      ctx.lineTo(ex + d*(len-10), ay+5);
+      ctx.closePath(); ctx.fill();
+    }
+  }
 }
 // ★ [S2] 원주민 독침 : 연록색 바늘 (잔상 + 침)
 function drawDart(d){
@@ -2429,7 +2515,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.46]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.47]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2513,7 +2599,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.46 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.47 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
