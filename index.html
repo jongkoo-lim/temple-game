@@ -362,17 +362,18 @@ function buildLevel(){
 
     // -- 수집품 : 2층/그네 아크에 배치해 양층 탐험 유도
     set(5,14,'g');
-    set(13,7,'g'); set(17,7,'g'); set(16,6,'w');      // 2층 산책로
+    set(13,7,'g'); set(17,7,'g'); set(12,5,'w');      // 2층 산책로 (무기: 3행 위 점프 전용, 지킴이 순찰 밖)
     set(33,9,'g'); set(38,9,'g');                     // 그네 아크(공중)
     set(50,11,'g'); set(54,10,'g'); set(58,9,'g');    // 계단
-    set(68,8,'p'); set(69,8,'g'); set(71,8,'h');      // 칼날 통과 보상
+    set(69,8,'g'); set(71,8,'h');                     // 칼날 통과 보상 (보석/하트)
+    set(119,8,'p');                                   // ★ 권총: 유적 평원 끝 안전 평지 (3행 위 점프 전용, 적·장애물 분리)
     set(75,12,'g');
     set(83,7,'g'); set(88,7,'g');                     // 2층 습지 산책로
     set(97,9,'g'); set(101,9,'g');                    // 그네2 아크
     set(112,10,'g'); set(116,10,'g');                 // 유적 1층
     set(112,6,'g'); set(114,6,'h'); set(117,6,'g');   // 유적 2층
     set(122,10,'g'); set(127,10,'g'); set(134,10,'g');// 가시 평원
-    set(143,6,'g'); set(147,6,'w');                   // 2층 망루
+    set(143,6,'g'); set(147,4,'w');                   // 2층 망루 (무기: 3행 위 점프 전용)
     set(146,10,'g'); set(148,10,'h'); set(152,10,'g'); set(158,10,'g'); // 문 앞 1층
   } else {
   // [1] 입구 저지대(넓은 평지) - 장애물1,2 + 적
@@ -2583,7 +2584,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.50]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.51]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2668,7 +2669,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.50 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.51 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
