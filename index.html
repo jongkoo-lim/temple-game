@@ -318,11 +318,67 @@ function buildLevel(){
   fill(0,0,0,ROWS-1,'#');
   fill(COLS-1,COLS-1,0,ROWS-1,'#');
 
+  if(stage===2){
+    // ============================================================
+    // [S2] 정글의 원주민 : Stage1과 완전히 다른 "이중층(1층/2층)" 정글
+    //   1층 = 그네 협곡/가시덤불/칼날 계단/넝쿨 장애물
+    //   2층 = 나무 산책로(덩굴 사다리로 승강, 적+아이템, 장애물 우회 루트)
+    // ============================================================
+    // -- A. 정글 입구 (col1~24) : 1층 평지 + 2층 나무 산책로
+    ground(1,24,16);                       // 1층 바닥
+    set(7,15,'^'); set(12,15,'^');         // 가시덤불 (점프로 넘기)
+    fill(10,20,8,8,'#');                   // ★ 2층 나무 산책로
+    for(let r=7;r<=15;r++) set(21,r,'L');  // 2층 승강 덩굴 사다리 (꼭대기가 산책로보다 1행 위 → 옆으로 걸어 올라탐)
+    for(let r=10;r<=15;r++) set(19,r,'W'); // 1층 넝쿨 장애물 (절단 통과 / 2층은 위로 우회)
+    fill(22,24,14,15,'#');                 // 협곡 직전 계단
+    // -- B. 그네 협곡1 (col29~44 낙사 구덩이) : 짧은 넝쿨 3개로만 횡단
+    ground(25,28,13);                      // 진입 절벽
+    ground(45,48,13);                      // 착지 절벽
+    // -- C. 사원 계단 (col49~72) : 한 칸씩 올라가는 계단식 유적 + 칼날 지대
+    ground(49,52,12); ground(53,56,11); ground(57,60,10); ground(61,72,9);
+    // 칼날 col62~66 (스폰 섹션) - 그네와 완전히 분리 "↓ 앉아서 통과"
+    // -- D. 습지 평원 (col73~93) : 낮은 지대로 내려가는 길 + 2층 산책로
+    ground(73,93,13);
+    set(83,12,'^'); set(87,12,'^');        // 가시덤불
+    for(let r=9;r<=12;r++) set(89,r,'W');  // 1층 넝쿨 장애물
+    fill(81,90,8,8,'#');                   // ★ 2층 산책로 (장애물 위를 지나감)
+    for(let r=7;r<=12;r++) set(80,r,'L');  // 승강 덩굴 사다리 (꼭대기가 산책로보다 1행 위)
+    // -- E. 그네 협곡2 (col94~104 낙사 구덩이) : 넝쿨 2개
+    ground(105,107,13);
+    ground(108,109,12);                    // 착지 후 계단
+    // -- F. 유적 평원 (col110~120) + 2층 유적 산책로
+    ground(110,120,11);
+    fill(110,118,7,7,'#');                 // ★ 2층 유적 산책로
+    for(let r=6;r<=10;r++) set(109,r,'L'); // 승강 덩굴 사다리 (꼭대기가 산책로보다 1행 위)
+    // -- G. 가시+칼날 평원 (col121~136)
+    ground(121,136,11);
+    set(123,10,'^'); set(126,10,'^'); set(135,10,'^');   // 가시덤불
+    // 칼날 col129~133 (스폰 섹션)
+    for(let r=7;r<=10;r++) set(136,r,'W'); // 최후의 넝쿨 장애물
+    // -- H. 족장의 문 앞 (col137~160) + 2층 망루
+    ground(137,160,11);
+    fill(140,150,7,7,'#');                 // ★ 2층 망루
+    for(let r=6;r<=10;r++) set(139,r,'L'); // 승강 덩굴 사다리 (꼭대기가 산책로보다 1행 위)
+
+    // -- 수집품 : 2층/그네 아크에 배치해 양층 탐험 유도
+    set(5,14,'g');
+    set(13,7,'g'); set(17,7,'g'); set(16,6,'w');      // 2층 산책로
+    set(33,9,'g'); set(38,9,'g');                     // 그네 아크(공중)
+    set(50,11,'g'); set(54,10,'g'); set(58,9,'g');    // 계단
+    set(68,8,'p'); set(69,8,'g'); set(71,8,'h');      // 칼날 통과 보상
+    set(75,12,'g');
+    set(83,7,'g'); set(88,7,'g');                     // 2층 습지 산책로
+    set(97,9,'g'); set(101,9,'g');                    // 그네2 아크
+    set(112,10,'g'); set(116,10,'g');                 // 유적 1층
+    set(112,6,'g'); set(114,6,'h'); set(117,6,'g');   // 유적 2층
+    set(122,10,'g'); set(127,10,'g'); set(134,10,'g');// 가시 평원
+    set(143,6,'g'); set(147,6,'w');                   // 2층 망루
+    set(146,10,'g'); set(148,10,'h'); set(152,10,'g'); set(158,10,'g'); // 문 앞 1층
+  } else {
   // [1] 입구 저지대(넓은 평지) - 장애물1,2 + 적
   ground(1,41,16);
   set(7,15,'^');                 // 장애물 1 (저지대)
   set(20,15,'^');                // 장애물 2 (저지대)
-  if(stage===2){ for(let r=10;r<=15;r++) set(22,r,'W'); }   // [S2] 넝쿨 장애물 : 채찍으로 잘라 통과
 
   // [2] 높이 5칸 이상 벽(col42 고지대)은 사다리로 ↑↑ 타고 오름
   for(let r=10;r<=15;r++) set(41,r,'L');   // 사다리 (꼭대기가 고지대 놓면 높이보다 살짝 위)
@@ -357,11 +413,7 @@ function buildLevel(){
   fill(132,140,8,10,'#');          // 높은 평탄(3타일 위) - 점프로 올라탐
   set(136,7,'g'); set(138,7,'g');
   set(144,10,'^'); set(147,10,'^'); set(150,10,'^');   // 가시 지대 (점프로 넘기)
-  if(stage===2){
-    for(let r=6;r<=10;r++) set(153,r,'W');   // [S2] 벽돌 벽 대신 넝쿨 장애물 (절단하여 통과)
-  } else {
-    fill(153,155,6,10,'#');          // 5타일짜리 벽 → 사다리로 등반
-  }
+  fill(153,155,6,10,'#');          // 5타일짜리 벽 → 사다리로 등반
   for(let r=5;r<=10;r++) set(152,r,'L');
   set(154,4,'g');                  // 벽 꼭대기 보석
   set(157,9,'g'); set(159,9,'g');  // 신전 문 앞 복도
@@ -409,6 +461,7 @@ function buildLevel(){
   set(100,9,'h');                 // 구덩이2 뒤 복도
   set(126,9,'h');                 // 유적 시작
   set(158,9,'h');                 // 신전 문 앞
+  }
 
   level = g;
 
@@ -420,16 +473,16 @@ function buildLevel(){
   boss=null; gateOpen=false; bossActive=false; bossDead=false;
   doorOpen=false; doorLift=0; cutscene=0; csT=0;
 
-  checkpoint = { x:70, y:16*TILE-46 };
+  checkpoint = stage===2 ? { x:4*TILE, y:16*TILE-46 } : { x:70, y:16*TILE-46 };
   cpAdv1 = false; cpAdv2 = false;
 
   spawnEnemies();
 
   // 구덩이 횡단 수단 : Stage1=이동발판 / Stage2=좌우로 흔들리는 그네 넝쿨
+  //   [S2] 길이 7.5타일로 단축 - 진자 폭이 좁아져 칼날/장애물과 접촉하지 않음
   if(stage===2){
-    for(const c2 of [61.5, 65, 68.5]) vines.push(makeVine(c2*TILE+16, 44, 9*TILE));  // 구덩이1(col58~71)
-    for(const c2 of [87, 90, 93])     vines.push(makeVine(c2*TILE+16, 44, 9*TILE));  // 구덩이2(col84~95)
-    for(const c2 of [114, 117.5, 121])vines.push(makeVine(c2*TILE+16, 44, 9*TILE));  // 구덩이3(col111~124)
+    for(const c2 of [31.5, 35.5, 40.5]) vines.push(makeVine(c2*TILE+16, 40, 7.5*TILE));  // 협곡1(col29~44)
+    for(const c2 of [97.5, 101.5])      vines.push(makeVine(c2*TILE+16, 40, 7.5*TILE));  // 협곡2(col94~104)
   } else {
     platforms.push( makePlatform(64.5*TILE, 10*TILE+32, 1) );   // 구덩이1(col58~71)
     platforms.push( makePlatform(89.5*TILE, 10*TILE+32, 1) );   // 구덩이2(col84~95)
@@ -438,10 +491,18 @@ function buildLevel(){
 
   // 회전 칼날 ("↓로 앉아서 아래로 피하는" 장애물)
   blades.length = 0;
-  for(let i=0;i<6;i++)                                        // 고지대 col50~55
-    blades.push({ x:(50+i)*TILE+16, y:11*TILE-52, r:18, rot:0, spd:(i%2? 6.5:-6.5) });
-  for(let i=0;i<5;i++)                                        // 높은 평탄 col134~138 (표면 row8)
-    blades.push({ x:(134+i)*TILE+16, y:8*TILE-52, r:18, rot:0, spd:(i%2? 6.5:-6.5) });
+  if(stage===2){
+    // [S2] 그네 협곡과 완전히 분리된 위치 (그네 진자 범위 밖 - 데미지 겹침 방지)
+    for(let i=0;i<5;i++)                                        // 사원 계단 위(col62~66, 표면 row9)
+      blades.push({ x:(62+i)*TILE+16, y:9*TILE-52, r:18, rot:0, spd:(i%2? 6.5:-6.5) });
+    for(let i=0;i<5;i++)                                        // 가시 평원(col129~133, 표면 row11)
+      blades.push({ x:(129+i)*TILE+16, y:11*TILE-52, r:18, rot:0, spd:(i%2? 6.5:-6.5) });
+  } else {
+    for(let i=0;i<6;i++)                                        // 고지대 col50~55
+      blades.push({ x:(50+i)*TILE+16, y:11*TILE-52, r:18, rot:0, spd:(i%2? 6.5:-6.5) });
+    for(let i=0;i<5;i++)                                        // 높은 평탄 col134~138 (표면 row8)
+      blades.push({ x:(134+i)*TILE+16, y:8*TILE-52, r:18, rot:0, spd:(i%2? 6.5:-6.5) });
+  }
 
   // 보스 스폰 (해골 섬 아레나 끝쪽)
   boss = { x:185*TILE, y:11*TILE-64, w:34, h:64, vx:0, vy:0, onGround:false, f:(-1),
@@ -478,23 +539,26 @@ function spawnEnemies(){
   //  (게임 시작 + 플레이어 리스폰 시 모두 호출되어 적도 함께 리스폰됨)
   enemies.length = 0;
   if(stage===2){
-    // [S2] 정글의 원주민 : 같은 근접 패턴(걷기/점프/돌진) + 독침 취사군
-    spawnNative(12, 16, 'walk');    // 입구 (저지대)
-    spawnNative(23, 16, 'jump');    // 저지대 점퍼
-    spawnNative(46, 11, 'charge');  // 고지대 입구 차저
-    spawnNative(52, 11, 'walk');    // 칼날 지대 사냥꾼
-    spawnNative(79, 11, 'walk');    // 보석 탑~구덩이2 사이
-    spawnNative(99, 11, 'jump');    // 구덩이2 뒤 복도 점퍼
-    spawnNative(129, 11, 'walk');   // 유적 디딤돌 근처
-    spawnNative(146, 11, 'jump');   // 가시 지대 점퍼
-    spawnNative(159, 11, 'charge'); // 신전 문 앞 차저
-    spawnFlyer(117, 9);             // 구덩이3 위를 나는 박쥐
-    spawnFlyer(137, 5);             // 높은 평탄 위를 나는 박쥐
-    spawnNative(35, 10, 'walk', 30);   // 저지대 2단 발판 (보석 지킴)
-    spawnNative(101, 8, 'walk', 30);   // 복도 상층 발판 (보석 지킴)
-    spawnNative(147, 8, 'walk', 28);   // 유적 상층 발판 (하트 지킴)
-    spawnFlyer(32, 8);                // 저지대 상층을 도는 박쥐
-    spawnFlyer(103, 6);               // 복도 상층을 도는 박쥐
+    // [S2] 정글의 원주민 : 이중층 레이아웃에 맞춘 배치 (1층 지상 + 2층 산책로)
+    spawnNative(4, 16, 'walk');       // 입구 1층
+    spawnNative(17, 8, 'walk', 26);   // ★ 2층 나무 산책로
+    spawnNative(50, 12, 'walk');      // 사원 계단
+    spawnNative(58, 10, 'charge');    // 계단 차저
+    spawnNative(69, 9, 'jump');       // 칼날 지대 뒤 고원
+    spawnNative(76, 13, 'walk');      // 습지 1층
+    spawnNative(85, 13, 'jump');      // 가시덤불 사이
+    spawnNative(86, 8, 'walk', 26);   // ★ 2층 산책로 (습지)
+    spawnNative(113, 11, 'walk');     // 유적 1층
+    spawnNative(114, 7, 'walk', 26);  // ★ 2층 유적 산책로
+    spawnNative(122, 11, 'jump');     // 가시 평원
+    spawnNative(131, 11, 'charge');   // 칼날 평원 차저
+    spawnNative(144, 11, 'walk');     // 문 앞
+    spawnNative(150, 11, 'charge');   // 문 앞 차저
+    spawnNative(145, 7, 'jump', 26);  // ★ 2층 망루
+    spawnFlyer(36, 3);                // 그네 협곡1 상공 (높게 - 그네 탑승자와 겹치지 않게)
+    spawnFlyer(70, 5);                // 고원 상공
+    spawnFlyer(99, 3);                // 그네 협곡2 상공
+    spawnFlyer(155, 5);               // 문 앞 상공
     return;
   }
   spawnGuard(12, 16, 'walk');    // 입구 (저지대)
@@ -786,8 +850,14 @@ function updatePlayer(dt, s){
   if(p.y > H+40){ respawn(); sfx('boss'); }
 
   // 체크포인트 갱신 (첫 이동발판 횡단(구덩이1, col58~71)을 넘어가면 고지대에 저장)
-  if(!cpAdv1 && p.x > 72*TILE){ cpAdv1 = true; checkpoint = {x: 75*TILE, y: 11*TILE-46}; }
-  if(!cpAdv2 && p.x > 126*TILE){ cpAdv2 = true; checkpoint = {x: 129*TILE, y: 11*TILE-46}; }
+  // 체크포인트 갱신 (스테이지별 지형에 맞는 안전 지점)
+  if(stage===2){
+    if(!cpAdv1 && p.x > 72*TILE){ cpAdv1 = true; checkpoint = {x: 75*TILE, y: 13*TILE-46}; }   // 습지 평원
+    if(!cpAdv2 && p.x > 126*TILE){ cpAdv2 = true; checkpoint = {x: 138*TILE, y: 11*TILE-46}; } // 넝쿨 벽 뒤
+  } else {
+    if(!cpAdv1 && p.x > 72*TILE){ cpAdv1 = true; checkpoint = {x: 75*TILE, y: 11*TILE-46}; }
+    if(!cpAdv2 && p.x > 126*TILE){ cpAdv2 = true; checkpoint = {x: 129*TILE, y: 11*TILE-46}; }
+  }
 
   // 채찍 적중 처리 (권총 장착 중엔 채찍 판정 없음 - 발사는 updateBullets가 처리)
   if(p.attack>0 && p.weapon==='whip'){
@@ -2515,7 +2585,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.47]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.48]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2599,7 +2669,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.47 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.48 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
