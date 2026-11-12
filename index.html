@@ -1329,7 +1329,7 @@ function updateBoss(dt, s, active){
           // 보스 처치 : 쓰러진 자리에서 보물 상자가 솟아오른다! (첫 처치부터)
           chest = { x: Math.max(ARENAL*TILE+16, Math.min(boss.x+boss.w/2-18, 196*TILE-16)),
                     y: 11*TILE-30, w:36, h:30, rise:0, risen:false, opened:false, openT:0 };
-          showToast('신전의 바닥이 흔들린다… 무언가 올라온다!', 2.4);
+          showToast(stage===2? '아레나의 바닥이 흔들린다… 무언가 올라온다!' : '신전의 바닥이 흔들린다… 무언가 올라온다!', 2.4);
           shake=8; sfx('door');
         } else {
           if(stage===1){ state='interlude'; interT=0; sfx('door'); }   // 상자 없어도 S2로
@@ -1892,15 +1892,31 @@ function drawTiles(){
           ctx.beginPath(); ctx.ellipse(x+8+k*6, y+6+(k%2)*16, 4, 2.5, 0.7, 0, Math.PI*2); ctx.fill();
         }
       } else if(ch==='D'){
-        // 신전의 문 (doorLift만큼 위로 슬라이드하여 열림)
+        // [S1] 신전의 문 / [S2] 원주민의 덩쿨 문 (doorLift만큼 위로 슬라이드하여 열림)
         if(!doorOpen || doorLift>0){
           const dy = y - doorLift;
+          if(stage===2){
+            // [S2] 덩쿨 문 : 굵은 덩쿨을 엮어 만든 원주민의 문
+            ctx.fillStyle='#2a1f10'; ctx.fillRect(x+2, dy, TILE-4, DOOR_H+4);   // 나무 틀
+            ctx.fillStyle='#3e5a26'; ctx.fillRect(x+4, dy+2, TILE-8, DOOR_H);   // 바탕 덩쿨
+            ctx.fillStyle='#4e7430';
+            for(let k=0;k<3;k++) ctx.fillRect(x+5+k*8, dy+2, 4, DOOR_H);         // 세로 덩쿨
+            ctx.fillStyle='#5d8a3a';
+            for(let yy=4; yy<DOOR_H; yy+=9) ctx.fillRect(x+4, dy+yy, TILE-8, 3); // 가로 엮임
+            ctx.fillStyle='#6e9a44';
+            for(let k=0;k<4;k++){ ctx.beginPath(); ctx.ellipse(x+6+k*7, dy+10+(k%2)*14, 4, 2.5, 0.7, 0, Math.PI*2); ctx.fill(); } // 잎사귀
+            ctx.fillStyle='#d84a3a';                                             // 붉은 꽃 장식
+            ctx.beginPath(); ctx.arc(x+TILE/2, dy+DOOR_H/2-12, 4, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle='#ffd76b';
+            ctx.beginPath(); ctx.arc(x+TILE/2, dy+DOOR_H/2-12, 1.8, 0, Math.PI*2); ctx.fill();
+          } else {
           ctx.fillStyle='#6e6446'; ctx.fillRect(x+2, dy, TILE-4, DOOR_H+4); // 문짝
           ctx.fillStyle='#8d8058'; ctx.fillRect(x+2, dy, TILE-4, 5);        // 윗장식
           ctx.fillStyle='#2f2817'; ctx.fillRect(x+2, dy+DOOR_H-6, TILE-4, 6); // 아랫단
           ctx.fillStyle='#120c06';
           ctx.beginPath(); ctx.arc(x+TILE/2, dy+DOOR_H/2-12, 8, 0, Math.PI*2); ctx.fill(); // 눈 장식
           ctx.fillStyle='#d8cf9a'; ctx.beginPath(); ctx.arc(x+TILE/2, dy+DOOR_H/2-12, 3, 0, Math.PI*2); ctx.fill();
+          }
         }
       } else if(ch==='.'){
         // 용암 구덩이 (어레나 영역 colARENAL~ARENAR, row12~17만)
@@ -2315,19 +2331,40 @@ function drawBoss(){
   ctx.strokeStyle=bone; ctx.lineWidth=3;
   ctx.beginPath(); ctx.moveTo(10,22); ctx.lineTo(6,28); ctx.stroke();
 
-  // 큰 검 (손잡이 기준으로 sw 각도로 휘두름)
+  // 무기 : [S2] 철퇴(나무 자루 + 가시 돋친 철구) / [S1] 큰 검 (손잡이 기준 sw 각도로 휘두름)
   ctx.save(); ctx.translate(25,20); ctx.rotate(sw);
-  ctx.fillStyle = flash? '#fffbe8' : (stage===2? '#b98a4e' : '#d7dde4');   // S2=나무 칼
-  ctx.fillRect(0,-2.4, 32, 4.8);                                  // 칼날
-  ctx.fillStyle= stage===2? '#8a6a3a' : '#9fb3c0'; ctx.fillRect(16,-2.4, 16, 1.5);        // 칼날 하이라이트
-  ctx.fillStyle=gold; ctx.fillRect(-5,-5, 6,10);                 // 가드(황금)
-  ctx.fillStyle='#5a3a1a'; ctx.fillRect(-10,-2, 6,4);            // 손잡이
+  if(stage===2){
+    ctx.fillStyle = flash? '#fffbe8' : '#7a5226';
+    ctx.fillRect(0,-2.2, 24, 4.4);                                   // 나무 자루
+    ctx.fillStyle='#5a3a1a'; ctx.fillRect(-9,-2.2, 9, 4.4);          // 손잡이
+    ctx.fillStyle=gold; ctx.fillRect(-1,-4.4, 3, 8.8);               // 붉은 가죽 밴드
+    const mx=30;
+    ctx.fillStyle = flash? '#fffbe8' : '#5d636b';                    // 철구
+    ctx.beginPath(); ctx.arc(mx,0,8,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#828a94';
+    ctx.beginPath(); ctx.arc(mx-3,-3,2.6,0,Math.PI*2); ctx.fill();   // 광택
+    ctx.fillStyle='#aab2bc';                                          // 가시 8개
+    for(let a=0;a<8;a++){
+      const th=a*Math.PI/4;
+      ctx.beginPath();
+      ctx.moveTo(mx+Math.cos(th)*7.4, Math.sin(th)*7.4);
+      ctx.lineTo(mx+Math.cos(th+0.3)*4, Math.sin(th+0.3)*4);
+      ctx.lineTo(mx+Math.cos(th-0.3)*4, Math.sin(th-0.3)*4);
+      ctx.closePath(); ctx.fill();
+    }
+  } else {
+    ctx.fillStyle = flash? '#fffbe8' : '#d7dde4';
+    ctx.fillRect(0,-2.4, 32, 4.8);                                  // 칼날
+    ctx.fillStyle='#9fb3c0'; ctx.fillRect(16,-2.4, 16, 1.5);        // 칼날 하이라이트
+    ctx.fillStyle=gold; ctx.fillRect(-5,-5, 6,10);                 // 가드(황금)
+    ctx.fillStyle='#5a3a1a'; ctx.fillRect(-10,-2, 6,4);            // 손잡이
+  }
   ctx.restore();
 
-  // 베기 잔상 (속도감)
+  // 베기 잔상 (속도감) - [S2] 철퇴는 철구가 더 멀리 돌아 반경 확대
   if(b.state==='attack' && (b.atk==='combo'||b.atk==='slash1'||b.atk==='slash2') && b.pa>0.1 && b.pa<0.85){
     ctx.strokeStyle='rgba(255,235,200,0.35)'; ctx.lineWidth=6; ctx.lineCap='round';
-    ctx.beginPath(); ctx.arc(17,18, 26, -1.7+b.pa*2.4, -0.4+b.pa*2.4); ctx.stroke();
+    ctx.beginPath(); ctx.arc(17,18, stage===2? 31:26, -1.7+b.pa*2.4, -0.4+b.pa*2.4); ctx.stroke();
   }
   // 텔레그래프 표시
   if(b.state==='telegraph'){
@@ -2599,7 +2636,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.53]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.54]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2684,7 +2721,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.53 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.54 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
