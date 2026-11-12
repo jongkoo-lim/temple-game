@@ -480,10 +480,14 @@ function buildLevel(){
   spawnEnemies();
 
   // 구덩이 횡단 수단 : Stage1=이동발판 / Stage2=좌우로 흔들리는 그네 넝쿨
-  //   [S2] 길이 7.5타일로 단축 - 진자 폭이 좁아져 칼날/장애물과 접촉하지 않음
+  //   [S2] 협곡당 2개, 서로 반대 위상(PI 오프셋) - 한쪽이 오면 다른 쪽은 감.
+  //        길이 8.5타일 - 끝 높이가 점프 중간 높이와 맞물려 잡기 쉬움,
+  //        중앙에서 두 넝쿨 끝이 나란히 지나가 ↓놓기로 갈아탈 수 있음.
   if(stage===2){
-    for(const c2 of [31.5, 35.5, 40.5]) vines.push(makeVine(c2*TILE+16, 40, 7.5*TILE));  // 협곡1(col29~44)
-    for(const c2 of [97.5, 101.5])      vines.push(makeVine(c2*TILE+16, 40, 7.5*TILE));  // 협곡2(col94~104)
+    vines.push(makeVine(33*TILE+16, 40, 8.5*TILE, 0));         // 협곡1 A (왼쪽 진입)
+    vines.push(makeVine(38.5*TILE+16, 40, 8.5*TILE, Math.PI)); // 협곡1 B (오른쪽 도착, 역위상) - 앵커 간격 5.5타일: 두 끝이 중앙 하단에서 마주침
+    vines.push(makeVine(96.5*TILE+16, 40, 8.5*TILE, 0));       // 협곡2 A
+    vines.push(makeVine(102*TILE+16, 40, 8.5*TILE, Math.PI));  // 협곡2 B (역위상)
   } else {
     platforms.push( makePlatform(64.5*TILE, 10*TILE+32, 1) );   // 구덩이1(col58~71)
     platforms.push( makePlatform(89.5*TILE, 10*TILE+32, 1) );   // 구덩이2(col84~95)
@@ -514,8 +518,10 @@ function makePlatform(x,y,axis){ // axis 1=수평, 0=수직 (넓고 느리게 �
   return { x, y, w:140, h:16, axis, baseX:x, baseY:y, t:Math.random()*10, on:false };
 }
 // ★ [S2] 그네 넝쿨 : 가지에 매달려 좌우로 흔들리는 정자 pendulum (sin 구동 = 항상 일정 진폭)
-function makeVine(px, py, len){
-  return { px, py, len, t:Math.random()*3, ph:Math.random()*6.28, amp:1.0, spd:1.55, ang:0, angV:0 };
+//   협곡마다 2개가 "반대 위상"(ph 0 vs PI)으로 움직임 - 하나가 가까워 올 때 다른 하나는 멀어짐.
+//   놓쳐도 곧 반대 넝쿨이 다가와 재시도 가능, 위상이 고정되어 타이밍을 익힐 수 있음.
+function makeVine(px, py, len, ph){
+  return { px, py, len, t:0, ph:(ph===undefined? Math.random()*6.28 : ph), amp:1.0, spd:1.15, ang:0, angV:0 };  // ★ 1.35->1.15 : 진자가 느려져 잡기/갈아타기/놓기 타이밍 창 확대
 }
 function spawnGuard(col, groundRow, kind, leash){
   const gy = groundRow*TILE - 44;
@@ -552,9 +558,9 @@ function spawnEnemies(){
     spawnNative(111, 7, 'walk', 22);  // ★ 2층 유적 산책로 (하트 col114에서 3칸 떨어짐)
     spawnNative(145, 7, 'jump', 26);  // ★ 2층 망루
     spawnNative(150, 11, 'charge');   // 문 앞 차저 (기존 문 앞 3연속 적에서 1개로 축소)
-    spawnFlyer(36, 3);                // 그네 협곡1 상공 (높게 - 그네 탑승자와 겹치지 않게)
+    spawnFlyer(56, 5);                // ★ 사원 계단 상공 (협곡1 상공 이전 - 펌핑한 그네 최고점이 박쥐 어그로권에 들어와 매달린 채 피격→추락하던 문제 해소)
     spawnFlyer(70, 5);                // 고원 상공
-    spawnFlyer(99, 3);                // 그네 협곡2 상공
+    spawnFlyer(119, 5);               // ★ 유적 평원 상공 (협곡2 상공 이전 - 같은 이유)
     spawnFlyer(155, 5);               // 문 앞 상공
     return;
   }
@@ -731,8 +737,8 @@ function updatePlayer(dt, s){
     if(dn && !p._vdHeld){
       p._vdHeld = true;
       const rel = Math.max(-8.5, Math.min(8.5, Math.cos(v.ang)*v.angV*v.len/60*1.2));
-      p.vx = rel; p.vy = 2.5;
-      p.onVine = null; p.vineCd = 0.35;
+      p.vx = rel; p.vy = -1.5;   // ★ 살짝 뜨게 - 반대 넝쿨 끝으로 갈아타는 공중 핸드오프 여유
+      p.onVine = null; p.vineCd = 0.35; p._lastVine = v;   // 쿨다운은 '같은 넝쿨' 재잡기 방지용
       sfx('jump');
     } else if(!dn){ p._vdHeld = false; }
     if(p.onVine){
@@ -740,7 +746,7 @@ function updatePlayer(dt, s){
       // ↑ 새 누름 : 진자의 접선 속도(탄속)를 실어 점프하며 놓는다
       const rel = Math.max(-8.5, Math.min(8.5, Math.cos(v.ang)*v.angV*v.len/60*1.2));
       p.vx = rel; p.vy = -10.5;
-      p.onVine = null; p.vineCd = 0.35; p.jumpBuf = 0; p.onGround = false;
+      p.onVine = null; p.vineCd = 0.35; p._lastVine = v; p.jumpBuf = 0; p.onGround = false;
       sfx('jump');
     } else {
       const ex = v.px + Math.sin(v.ang)*v.len, ey = v.py + Math.cos(v.ang)*v.len;
@@ -827,14 +833,15 @@ function updatePlayer(dt, s){
   // ★ [S2] 그네 넝쿨 잡기 : 공중에서 넝쿨 끝에 닿으면 자동으로 매달림
   if(stage===2){
     if((p.vineCd||0) > 0) p.vineCd -= dt;
-    if(!p.onVine && !p.onGround && (p.vineCd||0) <= 0){
+    if(!p.onVine && !p.onGround){
       for(const v of vines){
+        if((p.vineCd||0) > 0 && v === p._lastVine) continue;   // ★ 쿨다운은 '같은 넝쿨' 재잡기 방지용 - 다른 넝쿨로의 갈아타기는 즉시 허용
         const ex = v.px + Math.sin(v.ang)*v.len, ey = v.py + Math.cos(v.ang)*v.len;
         const dx = (p.x+p.w/2) - ex, dy = (p.y+12) - ey;
-        if(dx*dx + dy*dy < 34*34){
+        if(dx*dx + dy*dy < 56*56){          // ★ 잡기 반경 34->56px 완화 (공중 캐치+갈아타기 난이도 하향)
           p.onVine = v; p.vx = 0; p.vy = 0; p.jumpBuf = 0;
           sfx('gem');
-          if(!vineToastDone){ vineToastDone = true; showToast('넝쿨을 잡았다! 흔들림에 맞춰 ↑로 뛰어넘자', 2.8); }
+          if(!vineToastDone){ vineToastDone = true; showToast('넝쿨을 잡았다! 두 넝쿨이 중앙에서 마주칠 때 ↓로 갈아타고 ↑로 뛰어넘자', 3.5); }
           break;
         }
       }
@@ -918,7 +925,7 @@ function onHazard(b){
 }
 function damagePlayer(n, kx){
   p.hp -= n; p.hurtInv = 1.2;
-  p.onVine = null; p.vineCd = 0.5;    // [S2] 그네에 매달린 채 피격 시 즉시 놓음
+  p.onVine = null; p.vineCd = 0.5; p._lastVine = null;   // [S2] 그네에 매달린 채 피격 시 즉시 놓음 (모든 넝쿨 재잡기 차단)
   p.hurtFx = 0.12;                  // ★ 피격 직후 짧게 흰색 플래시
   p.vx = kx*5; p.vy = -4.5;
   shake = 8; sfx('hit');
@@ -2584,7 +2591,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.51]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.52]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2669,7 +2676,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.51 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.52 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
