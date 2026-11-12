@@ -375,6 +375,14 @@ function buildLevel(){
     set(122,10,'g'); set(127,10,'g'); set(134,10,'g');// 가시 평원
     set(143,6,'g'); set(147,4,'w');                   // 2층 망루 (무기: 3행 위 점프 전용)
     set(146,10,'g'); set(148,10,'h'); set(152,10,'g'); set(158,10,'g'); // 문 앞 1층
+
+    // [S2] 족장의 아레나 : ★ v2.53 - Stage1과 동일 구조(뼈 섬+용암+천장+신전 문)를 재사용.
+    //      이게 없어서 col160 뒤가 공허였고, "족장이 다가오고 있다" 메시지만 뜬 채
+    //      앞으로 걸으면 낙사하던 버그. 문(D)은 x>160 도달 컷신으로 열림.
+    for(let c=ARENAL;c<=ARENAR;c++) set(c,11,'K');       // 뼈 섬 표면
+    fill(ARENAL,ARENAR,12,17,'.');                        // 아래는 용암
+    fill(ARENAL,ARENAR,0,1,'#');                          // 어레나 천장(방을 닫음)
+    for(let r=7;r<=10;r++) set(ARENAL,r,'D');             // 신전의 문 (닫힘 → 컷신으로 열림)
   } else {
   // [1] 입구 저지대(넓은 평지) - 장애물1,2 + 적
   ground(1,41,16);
@@ -2591,7 +2599,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.52]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.53]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2676,7 +2684,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.52 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.53 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
