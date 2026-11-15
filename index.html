@@ -352,7 +352,9 @@ function buildLevel(){
     for(let r=6;r<=10;r++) set(109,r,'L'); // 승강 덩굴 사다리 (꼭대기가 산책로보다 1행 위)
     // -- G. 가시+칼날 평원 (col121~136)
     ground(121,136,11);
-    set(123,10,'^'); set(126,10,'^'); set(135,10,'^');   // 가시덤불
+    set(123,10,'^');   // 가시덤불 1기로 축소 - 점프 착지(~4.5타일) 후 칼날(col129~)까지 5타일 여유
+    // 칼날 col129~133 (스폰 섹션)
+    // ★ col126/col135 가시 제거 - 칼날 직전/직후 1~2칸 착지 강제로 무조건 피해 입던 함정 구간 해소
     // 칼날 col129~133 (스폰 섹션)
     for(let r=7;r<=10;r++) set(136,r,'W'); // 최후의 넝쿨 장애물
     // -- H. 족장의 문 앞 (col137~160) + 2층 망루
@@ -569,7 +571,8 @@ function spawnEnemies(){
     spawnFlyer(56, 5);                // ★ 사원 계단 상공 (협곡1 상공 이전 - 펌핑한 그네 최고점이 박쥐 어그로권에 들어와 매달린 채 피격→추락하던 문제 해소)
     spawnFlyer(70, 5);                // 고원 상공
     spawnFlyer(119, 5);               // ★ 유적 평원 상공 (협곡2 상공 이전 - 같은 이유)
-    spawnFlyer(155, 5);               // 문 앞 상공
+    spawnFlyer(140, 5);               // ★ 문 앞 상공 -> 문에서 21칸으로 이전 (문 앞 어그로 190px 안이라
+                                     //   문이 열린 틈에 넉백으로 아레나 밖으로 튕겨나가던 문제 해소)
     return;
   }
   spawnGuard(12, 16, 'walk');    // 입구 (저지대)
@@ -707,6 +710,10 @@ function updateCutscene(dt){
   if(cutscene===0){
     if(!doorOpen && !bossDead && center(p).x > 160*TILE){  // 문 앞 도달 → 문 열기
       cutscene=1; csT=0; sfx('door'); return;
+    }
+    // ★ 물러나면 문이 다시 닫힘 - 문을 열어둔 채 밖으로 밀려나 "문이 안 닫힌 것 같은" 현상 방지
+    if(doorOpen && !bossActive && !bossDead && center(p).x < 159.5*TILE){
+      doorOpen=false; doorLift=0; sfx('door');
     }
     if(doorOpen && !bossActive && !bossDead && center(p).x > 162.5*TILE){ // 방 안 진입 → 문 잠그고 보스
       cutscene=2; csT=0;
@@ -980,7 +987,7 @@ function updateEnemies(dt, s){
       if(e.kind==='walk'){
         // 걷는 가드: 평소 순찰, 플레이어를 발견하면 빠르게 추격
         e.vx = e.f * (e.speed||0.7);
-        const chase = dist < 240 && sameH;
+        const chase = dist < 240 && sameH && losClear(e, p);   // ★ 시야 있을 때만 추격 (벽 사이 무한 추격 방지)
         e.speed = chase ? 2.0 : 0.7;
       }
       else if(e.kind==='jump'){
@@ -989,7 +996,8 @@ function updateEnemies(dt, s){
         if(e.onGround){
           e.vx = e.f*0.5;
           if(e.hopT<=0){
-            e.f = playerCenter().x > center(e).x ? 1 : -1;
+            if(dist < 300 && sameH && losClear(e, p))          // ★ 시야 있을 때만 플레이어 향해 점프
+              e.f = playerCenter().x > center(e).x ? 1 : -1;   //   (벽 뒤 플레이어 향해 벽에 붙어만 있던 버그 수정)
             e.vy = -8.4; e.vx = e.f*2.4;
             e.hopT = 1.1 + Math.random()*0.7;
           }
@@ -1018,7 +1026,7 @@ function updateEnemies(dt, s){
             e.shootT = 1.8 + Math.random()*1.0;   // 독침 재발사 간격 완화 (1.4~2.3s → 1.8~2.8s)
           }
         } else if((e.shootT||0) > 0){ e.shootT -= dt; }
-        else if(dist < 300 && sameH && e.onGround && (e.kind!=='charge' || e.st==='idle')){
+        else if(dist < 300 && sameH && e.onGround && losClear(e, p) && (e.kind!=='charge' || e.st==='idle')){
           e.f = playerCenter().x > center(e).x ? 1 : -1;
           e.aim = 0.5;
         }
@@ -1050,6 +1058,17 @@ function updateEnemies(dt, s){
 }
 function center(o){ return { x:o.x+o.w/2, y:o.y+o.h/2 }; }
 function playerCenter(){ return center(p); }
+// ★ [S2] 시야 체크 : 적과 플레이어 사이에 벽('W'/'D' 등 고체)이 있으면 false
+//   벽 뒤 플레이어를 향해 벽에 붙어 무한 조준/점프하던 "붙박이 적" 버그 수정용
+function losClear(a, b){
+  const ax=a.x+a.w/2, ay=a.y+16, bx=b.x+b.w/2, by=b.y+12;
+  const steps = Math.max(2, Math.ceil(Math.abs(bx-ax)/16));
+  for(let i=1;i<steps;i++){
+    const t=i/steps;
+    if(isSolidAt(Math.floor((ax+(bx-ax)*t)/TILE), Math.floor((ay+(by-ay)*t)/TILE))) return false;
+  }
+  return true;
+}
 
 function updateBlocks(dt, s){
   // 블록 중력
@@ -1983,19 +2002,20 @@ function drawLavaTile(x,y){
 }
 function drawSpike(x,y){
   if(stage===2){
-    // [S2] 가시덤불 (독가시)
-    ctx.fillStyle='#3c4c1e';
-    ctx.beginPath();
-    ctx.moveTo(x+2, y+TILE);
-    ctx.lineTo(x+TILE/2, y+6);
-    ctx.lineTo(x+TILE-2, y+TILE);
-    ctx.closePath(); ctx.fill();
-    ctx.fillStyle='#5c7a2c';
-    ctx.beginPath();
-    ctx.moveTo(x+2, y+TILE);
-    ctx.lineTo(x+TILE/2, y+6);
-    ctx.lineTo(x+TILE*0.3, y+TILE);
-    ctx.closePath(); ctx.fill();
+    // [S2] 가시 덩굴 : 삼각형 가시 대신 뒤틀린 덩굴에 독가시가 돋친 덤불
+    ctx.fillStyle='#2e4418'; ctx.fillRect(x+2, y+TILE-8, TILE-4, 8);        // 덤불 밑동
+    ctx.strokeStyle='#4a6a28'; ctx.lineWidth=2.4; ctx.lineCap='round';      // 덩굴 줄기 3가닥
+    ctx.beginPath(); ctx.moveTo(x+6,  y+TILE-6); ctx.quadraticCurveTo(x+9,  y+TILE-18, x+13, y+TILE-8);  ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x+13, y+TILE-6); ctx.quadraticCurveTo(x+17, y+TILE-22, x+21, y+TILE-10); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x+20, y+TILE-6); ctx.quadraticCurveTo(x+24, y+TILE-16, x+27, y+TILE-6);  ctx.stroke();
+    ctx.strokeStyle='#8fb44a'; ctx.lineWidth=1.4;                           // 독가시
+    for(let k=0;k<6;k++){
+      const bx=x+5+k*4.5, by=y+TILE-10-((k*7)%9);
+      ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(bx+1.2, by-6); ctx.stroke();
+    }
+    ctx.fillStyle='#5c8a34';                                                // 잎사귀
+    ctx.beginPath(); ctx.ellipse(x+10, y+TILE-16, 3.4, 2, -0.6, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x+22, y+TILE-14, 3.4, 2,  0.6, 0, Math.PI*2); ctx.fill();
     return;
   }
   ctx.fillStyle='#9a8a66';  ctx.beginPath();
@@ -2636,7 +2656,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.54]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.55]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2721,7 +2741,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.54 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.55 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
