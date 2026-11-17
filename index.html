@@ -2692,7 +2692,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.60]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.61]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2778,7 +2778,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.60 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.61 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
@@ -3017,7 +3017,7 @@ function initS3(){
   s3 = { dist:0, speed:95,              // ★ 스크롤 속도 150->95 : 강변 나무가 천천히 지나가도록
     raft:{ x:W/2, y:H-170, vx:0, vy:0, dx:0, dy:-1, cd:0 },
     rocks:[], logs:[], canoes:[], shots:[], darts:[], items:[], ripples:[],
-    nextRock:S3_END*0.34+200,           // ★ 구성: 0~34% 잔잔(고목만) / 34~66% 장애물 / 66%~ 적
+    nextRock:S3_END*0.20+200,           // ★ 구성: 0~20% 잔잔(고목만) / 20~50% 장애물 / 50%~ 적
     nextLog:800, nextGold:1300, nextItem:3400, nextHeart:5600,
     canoeT:99, rapid:0, end:S3_END, done:false, phase:0 };
   for(let i=0;i<46;i++) s3.ripples.push(s3NewRipple(Math.random()*H));
@@ -3049,11 +3049,11 @@ function updateS3(dt, s){
   // ★ 치명타 버그 수정: S3에선 updatePlayer가 호출되지 않아 hurtInv(피격 무적)가
   //    영원히 감쇠하지 않았음 -> 모든 충돌 판정이 막혀 장애물이 안 걸렸던 원인
   if(p.hurtInv>0) p.hurtInv -= dt;
-  if(s3.rapid>0) s3.rapid -= dt;
+  // 무기 강화는 ★지속 효과 (제한시간 없음) - 감쇠 없음
   // 구간 전환 연출
   const prog = s3.dist/s3.end;
-  if(s3.phase===0 && prog>=0.34){ s3.phase=1; showToast('급류 구간! 바위와 고목에 조심하라', 3); sfx('door'); }
-  if(s3.phase===1 && prog>=0.66){ s3.phase=2; showToast('원주민 카누가 나타난다!', 3); sfx('boss'); }
+  if(s3.phase===0 && prog>=0.20){ s3.phase=1; showToast('급류 구간! 바위와 고목에 조심하라', 3); sfx('door'); }
+  if(s3.phase===1 && prog>=0.50){ s3.phase=2; showToast('원주민 카누가 나타난다!', 3); sfx('boss'); }
   // 앞뒤좌우 이동
   const dirx = (keys['ArrowRight']?1:0)-(keys['ArrowLeft']?1:0);
   const diry = (keys['ArrowDown']?1:0)-(keys['ArrowUp']?1:0);
@@ -3084,11 +3084,11 @@ function updateS3(dt, s){
       s3.rocks.push({ p:pr, x:rv.c+xo, r:rr, seed:Math.random()*100 });
     s3.nextRock += 130 + Math.random()*190;
   }
-  // ---- 스폰 : 떠내려오는 고목 (초반엔 드물게, 급류 구간부터 촘촘히) ----
+  // ---- 스폰 : 떠내려오는 고목 (초반엔 드물게, 급류 구간부터 촘촘히 / 총 5발에 쪼개져 파괴) ----
   while(s3.nextLog < s3.dist + S3_K + 80){
     const pl = s3.nextLog, rv = s3River(pl), lw = 60+Math.random()*100;
     s3.logs.push({ p:pl, x: rv.c+(Math.random()*2-1)*Math.max(20,rv.hw-lw/2-20),
-      w:lw, h:24+Math.random()*14, rot:(Math.random()*2-1)*0.35 });
+      w:lw, h:24+Math.random()*14, rot:(Math.random()*2-1)*0.35, hp:5, split:0, flash:0 });
     s3.nextLog += (s3.phase===0? 700+Math.random()*900 : 300+Math.random()*380);
   }
   // ---- 스폰 : 금괴 / 무기(권총 강화) / 하트 ----
@@ -3118,10 +3118,14 @@ function updateS3(dt, s){
   }
   // ---- 오브젝트 갱신 ----
   for(const rp of s3.ripples){ rp.y += rp.v*dt; if(rp.y>H+30) Object.assign(rp, s3NewRipple(-20)); }
-  for(const lg of s3.logs) lg.p -= 26*dt;            // 고목은 유속보다 빠르게 표류
+  for(const lg of s3.logs){
+    lg.p -= 26*dt;                                     // 고목은 유속보다 빠르게 표류
+    if(lg.flash>0) lg.flash -= dt;
+    if(lg.split>0) lg.split += dt*1.3;                 // 파괴 애니메이션 진행
+  }
   for(const it of s3.items){ it.p -= 20*dt; it.t += dt; }
   s3.rocks = s3.rocks.filter(o=>o.p > s3.dist-200);
-  s3.logs  = s3.logs.filter(o=>o.p > s3.dist-200);
+  s3.logs  = s3.logs.filter(o=>o.p > s3.dist-200 && o.split<1);
   s3.items = s3.items.filter(o=>o.p > s3.dist-200);
   // 카누 : 일정한 느린 속도로 좌우 순항 + 하류로 천천히 표류, 앞으로만 발사
   for(let i=s3.canoes.length-1;i>=0;i--){
@@ -3173,6 +3177,22 @@ function updateS3(dt, s){
         }
       }
     }
+    // ★ 고목 명중: 5발 -> 쪼개지며 파괴 (나무 조각 파티클)
+    if(!dead){
+      for(const lg of s3.logs){
+        if(lg.split>0) continue;
+        const sy2 = S3_K-(lg.p-s3.dist);
+        if(Math.abs(bl.x-lg.x)<lg.w/2+4 && Math.abs(bl.y-sy2)<lg.h/2+4){
+          lg.hp--; lg.flash=0.1; sfx('hit');
+          burst(bl.x,bl.y,'#8a6a3a',7);
+          if(lg.hp<=0){
+            lg.split=0.001; score+=50; addPopup(lg.x,sy2-12,'+50');
+            burst(lg.x,sy2,'#a97c46',16); sfx('whip');
+          }
+          dead = true; break;
+        }
+      }
+    }
     if(dead) s3.shots.splice(i,1);
   }
   // 충돌 : 바위 / 고목
@@ -3188,7 +3208,8 @@ function updateS3(dt, s){
     }
   }
   for(const lg of s3.logs){
-    const sy = S3_K-(lg.p-s3.dist);
+    if(lg.split>0) continue;
+    const sy = S3_K-(lg.p-d);
     if(Math.abs(sy-r.y)>80) continue;
     if(overlap({x:r.x-32,y:r.y-22,w:64,h:44},{x:lg.x-lg.w/2,y:sy-lg.h/2,w:lg.w,h:lg.h}) && p.hurtInv<=0){
       const kx = r.x>=lg.x?1:-1;
@@ -3204,8 +3225,10 @@ function updateS3(dt, s){
       if(it.kind==='gold'){
         score+=100; addPopup(it.x,sy-8,'+100'); sfx('gem'); burst(it.x,sy,'#ffe36b',10);
       }else if(it.kind==='weapon'){
-        s3.rapid=12; addPopup(it.x,sy-8,'권총 강화!'); sfx('gem'); burst(it.x,sy,'#ffd75a',12);
-        showToast('권총 강화! 12초간 3연발 속사', 2.2);
+        // ★ 강화는 지속 효과 - 재획득 시 점수로 전환
+        if(s3.rapid>0){ score+=100; addPopup(it.x,sy-8,'+100'); }
+        else { s3.rapid=1; addPopup(it.x,sy-8,'권총 강화!'); showToast('권총 강화! 3연발 속사 (지속)', 2.4); }
+        sfx('gem'); burst(it.x,sy,'#ffd75a',12);
       }else{
         if(p.hp<p.maxHp){ p.hp++; addPopup(it.x,sy-8,'+1'); }
         else { score+=100; addPopup(it.x,sy-8,'+100'); }
@@ -3352,24 +3375,50 @@ function drawS3(){
     ctx.fillStyle='#3f4348';
     ctx.beginPath(); ctx.ellipse(rk.x+rk.r*0.2, sy+rk.r*0.28, rk.r*0.5, rk.r*0.3, 0, 0, Math.PI*2); ctx.fill();
   }
-  // --- 떠내려오는 고목 ---
+  // --- 떠내려오는 고목 (5발 피격 시 쪼개져 파괴) ---
   for(const lg of s3.logs){
     const sy = S3_K-(lg.p-d);
     if(sy<-80||sy>H+80) continue;
+    if(lg.split>0){
+      // 파괴: 두 조각이 좌우로 벌어지며 회전·가라앉음
+      const k2 = Math.min(1, lg.split);
+      ctx.save(); ctx.globalAlpha = Math.max(0,1-k2);
+      for(const sgn of [-1,1]){
+        ctx.save();
+        ctx.translate(lg.x + sgn*k2*26, sy + k2*16);
+        ctx.rotate(lg.rot + sgn*k2*0.9);
+        s3LogBody(lg);
+        ctx.restore();
+      }
+      ctx.restore();
+      continue;
+    }
     ctx.save(); ctx.translate(lg.x,sy); ctx.rotate(lg.rot);
-    ctx.fillStyle='rgba(0,0,0,0.18)';
-    ctx.beginPath(); ctx.ellipse(0,4,lg.w/2+6,lg.h/2+4,0,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='#6e4a24';
-    ctx.fillRect(-lg.w/2+lg.h/2,-lg.h/2,lg.w-lg.h,lg.h);
-    ctx.beginPath(); ctx.arc(-lg.w/2+lg.h/2,0,lg.h/2,0,Math.PI*2); ctx.arc(lg.w/2-lg.h/2,0,lg.h/2,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle='#553818'; ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.moveTo(-lg.w/2+lg.h/2,-lg.h/6); ctx.lineTo(lg.w/2-lg.h/2,-lg.h/6); ctx.stroke();
-    ctx.fillStyle='#a97c46';
-    ctx.beginPath(); ctx.arc(lg.w/2-lg.h/2,0,lg.h/2-2,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle='#7a5426';
-    ctx.beginPath(); ctx.arc(lg.w/2-lg.h/2,0,lg.h/2-5,0,Math.PI*2); ctx.stroke();
+    if(lg.flash>0) ctx.globalAlpha = 0.7;
+    s3LogBody(lg);
+    if(lg.hp<=4){                                   // 손상 균열 (피격에 따라)
+      ctx.strokeStyle='#3a2410'; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.moveTo(-lg.w*0.2,-lg.h/2+2); ctx.lineTo(-lg.w*0.08, lg.h/2-2); ctx.stroke();
+    }
+    if(lg.hp<=2){
+      ctx.beginPath(); ctx.moveTo(lg.w*0.12,-lg.h/2+3); ctx.lineTo(lg.w*0.26, lg.h/2-3); ctx.stroke();
+    }
     ctx.restore();
   }
+// 고목 몸체 (본체+단면) - 일반/파괴 조각 공용
+function s3LogBody(lg){
+  ctx.fillStyle='rgba(0,0,0,0.18)';
+  ctx.beginPath(); ctx.ellipse(0,4,lg.w/2+6,lg.h/2+4,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#6e4a24';
+  ctx.fillRect(-lg.w/2+lg.h/2,-lg.h/2,lg.w-lg.h,lg.h);
+  ctx.beginPath(); ctx.arc(-lg.w/2+lg.h/2,0,lg.h/2,0,Math.PI*2); ctx.arc(lg.w/2-lg.h/2,0,lg.h/2,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#553818'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(-lg.w/2+lg.h/2,-lg.h/6); ctx.lineTo(lg.w/2-lg.h/2,-lg.h/6); ctx.stroke();
+  ctx.fillStyle='#a97c46';
+  ctx.beginPath(); ctx.arc(lg.w/2-lg.h/2,0,lg.h/2-2,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#7a5426';
+  ctx.beginPath(); ctx.arc(lg.w/2-lg.h/2,0,lg.h/2-5,0,Math.PI*2); ctx.stroke();
+}
   // --- 아이템 (금괴/무기 상자/하트) ---
   for(const it of s3.items){
     const sy = S3_K-(it.p-d), bob = Math.sin(it.t*3)*3;
@@ -3457,18 +3506,15 @@ function drawS3(){
     ctx.beginPath(); ctx.moveTo(d2.x-d2.vx*2, d2.y-d2.vy*2); ctx.lineTo(d2.x,d2.y); ctx.stroke();
     ctx.fillStyle='#c9f26b'; ctx.beginPath(); ctx.arc(d2.x,d2.y,2,0,Math.PI*2); ctx.fill();
   }
-  // --- 항로 진행 바 + 종반 연출 ---
+  // --- 종반 연출 (★ 진행바는 제거) ---
   const prog = Math.min(1, d/s3.end);
-  ctx.fillStyle='rgba(0,0,0,0.4)'; ctx.fillRect(W/2-140,12,280,8);
-  ctx.fillStyle='#ffe36b'; ctx.fillRect(W/2-139,13,278*prog,6);
-  ctx.fillStyle='#c9a86a'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
-  ctx.fillText('밀림의 강', W/2, 34);
   if(prog>0.88){
+    ctx.textAlign='center';
     ctx.fillStyle='rgba(255,220,120,'+(0.5+0.5*Math.sin(performance.now()/200))+')';
     ctx.font='bold 20px sans-serif';
     ctx.fillText('상류 부두가 보인다!', W/2, 64);
+    ctx.textAlign='left';
   }
-  ctx.textAlign='left';
   // --- 비네트 ---
   const vg = ctx.createRadialGradient(W/2,H/2,H*0.45, W/2,H/2,H*0.85);
   vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,10,6,0.35)');
