@@ -97,7 +97,11 @@ let vines = [];                    // [S2] 그네 넝쿨 (구덩이 횡단용)
 let darts = [];                    // [S2] 원주민 독침
 let vineHp = {};                   // [S2] 넝쿨 장애물 타일 체력
 let vineToastDone = false;         // [S2] 넝쿨 잡기 안내 1회 표시
-let popups = [];                   // ★ 점수 팝업 (처치/반격 +N 이 떠오름)
+  let popups = [];                   // ★ 점수 팝업 (처치/반격 +N 이 떠오름)
+  // ---------- [S3] 밀림의 강 : 종스크롤 뗏목 러닝 ----------
+  const S3_END = 16000;              // 총 항로 길이(px) - 약 1분 50초
+  const S3_K = H - 150;              // 스크롤 기준선 (이 지점이 경로 좌표의 화면 y)
+  let s3 = null;
 let toast = null, toastT = 0;
 // 보물 상자 : 보스를 처치하면(1회부터) 쓰러진 자리에서 솟아오르는 특별 보상
 let chest = null;
@@ -317,6 +321,17 @@ function buildLevel(){
   // 좌우 벽
   fill(0,0,0,ROWS-1,'#');
   fill(COLS-1,COLS-1,0,ROWS-1,'#');
+
+  if(stage===3){
+    // ============================================================
+    // [S3] 밀림의 강 : 종스크롤 뗏목 러닝 - 타일 지형/적 AI 미사용.
+    //   강·뗏목·바위·고목·카누는 initS3()의 자체 오브젝트로 구동.
+    // ============================================================
+    enemies.length=0; blades.length=0; vines.length=0; blocks.length=0; platforms.length=0;
+    darts.length=0; boss=null;
+    checkpoint = { x:4*TILE, y:16*TILE-46 };
+    return;
+  }
 
   if(stage===2){
     // ============================================================
@@ -600,8 +615,8 @@ window.addEventListener('keydown', e=>{
   if(e.repeat) return;               // 리핏 무시 : 점프버퍼/공격/넝쿨 해제는 "새 누름"만 인정
   // 점프: ↑ 방향키
   if(e.code==='ArrowUp') p.jumpBuf = 0.12;
-  // 공격: Space
-  if(e.code==='Space') tryAttack();
+  // 공격: Space (S3 뗏목은 홀드 연사라 keydown 트리거 미사용)
+  if(e.code==='Space' && stage!==3) tryAttack();
   if(e.code==='Enter'){
     if(state==='menu') startGame();
     if(state==='clear'||state==='gameover') restart();
@@ -609,6 +624,8 @@ window.addEventListener('keydown', e=>{
   }
   // 메뉴에서 2 : Stage 2부터 바로 시작 (빠른 검증/시연용)
   if(e.code==='Digit2' && state==='menu'){ startGame(2); }
+  // 메뉴에서 3 : Stage 3 (밀림의 강) 바로 시작
+  if(e.code==='Digit3' && state==='menu'){ startGame(3); }
   // 메뉴에서 C : 엔딩 크레딧만 바로 보기
   if(e.code==='KeyC' && state==='menu'){
     startGame();                       // 상태 초기화 후
@@ -632,12 +649,16 @@ function startGame(stg){
   collectGemsFromGrid();
   resetPlayer();
   p.whipLv = 1;                  // 새 게임마다 무기 상태 초기화
-  p.weapon='whip'; p.pistolLv=1; p.ammo=0; p.maxAmmo=0; p.reloadT=0;
+  p.weapon = stage===3 ? 'pistol' : 'whip';   // ★ S3는 권총 기본 장착
+  p.pistolLv=1; p.ammo=0; p.maxAmmo=0; p.reloadT=0;
+  if(stage===3){ initS3(); camX = 0; showToast('STAGE 3 — 밀림의 강! 바위와 고목을 피해 상류로!', 3.2); }
+  else s3 = null;
   deadInitDone = false; chest = null;
   score=0; gems=0; state='play'; startTime=performance.now();
   creditT = 0;                    // 엔딩 크레딧 타이머 초기화
   creditsOnly = false;            // 크레딧 단독 모드 해제
   camX = Math.max(0, Math.min(p.x-W/2, COLS*TILE-W));
+  if(stage===3) camX = 0;
 }
 // ★ Stage 1 → 2 전환 : 무기/점수는 유지, 체력 회복 후 정글에서 재시작
 function startStage2(){
@@ -658,6 +679,8 @@ function update(dt){
   const s = Math.min(dt*60, 1.6);
   if(toastT>0) toastT-=dt;
   if(state==='play'){
+    // ★ [S3] 밀림의 강 : 타일 시스템 전부 생략, 자체 업데이트만
+    if(stage===3){ updateS3(dt, s); updatePopups(dt); updateParticles(dt); return; }
     if(cutscene>0){ p.vx=0; p.vy=0; }   // 컷신 중 캐릭터 동결
     updatePlayer(dt, s);
     updateEnemies(dt, s);
@@ -945,8 +968,8 @@ function damagePlayer(n, kx){
   p.vx = kx*5; p.vy = -4.5;
   shake = 8; sfx('hit');
   burst(p.x+p.w/2, p.y+10, '#e55', 10);
-  // ★ 피격 시 모자가 벗겨져 날아감 (이미 벗겨진 상태면 무시)
-  if(!p.hatOff){
+  // ★ 피격 시 모자가 벗겨져 날아감 (S3 뗏목엔 모자 시스템 없음, 이미 벗겨진 상태면 무시)
+  if(!p.hatOff && stage!==3){
     p.hatOff = true;
     hats.push({ x:p.x+p.w/2-8, y:p.y, w:16, h:8,
       vx:-kx*(2+Math.random()*1.5), vy:-5-Math.random()*2, onGround:false, rot:0, vr:(-kx*0.15) });
@@ -1547,6 +1570,16 @@ function render(){
   ctx.save();
   ctx.translate(sx,sy);
 
+  if(stage===3){
+    // ★ [S3] 밀림의 강 : 자체 렌더 (타일/카메라 시스템 미사용, 파티클은 스크린 좌표)
+    drawS3();
+    for(const pt of particles){
+      ctx.globalAlpha = Math.max(0,pt.life/0.9);
+      ctx.fillStyle = pt.color; ctx.fillRect(pt.x, pt.y, pt.s, pt.s);
+    }
+    ctx.globalAlpha = 1;
+    drawPopups();
+  } else {
   drawBackground();
   drawTiles();
 
@@ -1593,6 +1626,7 @@ function render(){
 
   // ★ 점수 팝업
   drawPopups();
+  }
 
   ctx.restore();
 
@@ -2658,7 +2692,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.56]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.57]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2725,6 +2759,7 @@ function drawMenu(){
     ['R', '처음부터 재시작'],
     ['Enter', '게임 시작'],
     ['2', 'Stage 2부터 바로 시작'],
+    ['3', 'Stage 3 — 밀림의 강 (뗏목 러닝) 바로 시작'],
     ['C', '엔딩 크레딧 보기'],
   ];
   ctrl.forEach((c2, i)=>{
@@ -2743,7 +2778,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.56 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.57 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
@@ -2957,13 +2992,441 @@ function drawGameOver(){
     ctx.fillText('Wasted', W/2, H/2-12);
     ctx.globalAlpha = wt;
     ctx.font='16px sans-serif'; ctx.fillStyle='#e8d8b8';
-    ctx.fillText(stage===2? '정글의 독침이 당신을 잠재웠다…' : '신전의 어둠이 당신을 집어삼켰다…', W/2, H/2+46);
+    ctx.fillText(stage===2? '정글의 독침이 당신을 잠재웠다…' : stage===3? '밀림의 강이 당신을 삼켰다…' : '신전의 어둠이 당신을 집어삼켰다…', W/2, H/2+46);
     ctx.font='bold 22px sans-serif'; ctx.fillStyle='#ffe29a';
     ctx.fillText('ENTER → 다시 도전', W/2, H/2+100);
     ctx.globalAlpha = 1;
   }
 }
 
+// ============================================================
+//  [S3] 밀림의 강 : 종스크롤 뗏목 러닝 (하늘에서 내려다보는 시점)
+//  - 강물은 화면 위->아래로 흐르고, 뗏목은 아래쪽에서 위로 나아가는 구도
+//  - 강폭은 절차적(결정론적 해시)으로 넓었다 좁았다 하고, 양안은 빽빽한 정글 +
+//    간간이 강 쪽으로 넘어진 나무. 장애물=바위/떠내려오는 고목, 적=카누(독화살)
+// ============================================================
+function s3Seg(k){
+  return { c: W*0.5 + (bhash(k*13.7)-0.5)*300 + Math.sin(k*0.7)*60,
+           hw: 88 + bhash(k*7.3)*130 };
+}
+// 경로 위치 P(px)에서의 강 중심/반폭 (세그먼트 보간 = 매끄러운 굽이와 폭 변화)
+function s3River(P){
+  const k = P/160, i = Math.floor(k), t = k-i;
+  const a = s3Seg(i), b = s3Seg(i+1), e = t*t*(3-2*t);
+  return { c: a.c+(b.c-a.c)*e, hw: a.hw+(b.hw-a.hw)*e };
+}
+function initS3(){
+  s3 = { dist:0, speed:150,
+    raft:{ x:W/2, y:H-170, vx:0, vy:0, dx:0, dy:-1, cd:0 },
+    rocks:[], logs:[], canoes:[], shots:[], darts:[], items:[], ripples:[],
+    nextRock:500, nextLog:900, nextGold:1300, nextItem:3400, nextHeart:5600,
+    canoeT:1.4, rapid:0, end:S3_END, done:false };
+  for(let i=0;i<46;i++) s3.ripples.push(s3NewRipple(Math.random()*H));
+}
+function s3NewRipple(y){
+  const riv = s3River(s3.dist + S3_K - y);
+  return { x: riv.c + (Math.random()*2-1)*Math.max(10,(riv.hw-14)), y,
+    len: 12+Math.random()*26, v: 150*(1.05+Math.random()*0.35),
+    a: 0.07+Math.random()*0.15, w: 0.8+Math.random()*1.6 };
+}
+// 권총 발사 : 조준 방향(dx,dy)으로 1발(강화 시 3연발)
+function fireS3(){
+  const r = s3.raft;
+  if(r.cd>0) return;
+  r.cd = s3.rapid>0 ? 0.13 : 0.30;
+  const lv = s3.rapid>0 ? 3 : 1;
+  for(let i=0;i<lv;i++){
+    const sp = (i-(lv-1)/2)*10, px = -r.dy, py = r.dx;   // 진행축에 수직으로 퍼짐
+    s3.shots.push({ x:r.x + r.dx*36 + px*sp, y:r.y + r.dy*36 + py*sp,
+      vx:r.dx*11, vy:r.dy*11, dist:0, maxDist:560 });
+  }
+  sfx('shoot');
+  burst(r.x + r.dx*40, r.y + r.dy*40, '#ffd75a', 4);
+}
+function updateS3(dt, s){
+  camX = 0;                              // 팝업은 스크린 좌표
+  const r = s3.raft;
+  s3.dist += s3.speed*dt;                // 항로 진행 (강물이 아래로 흐르는 효과)
+  if(s3.rapid>0) s3.rapid -= dt;
+  // 앞뒤좌우 이동
+  const dirx = (keys['ArrowRight']?1:0)-(keys['ArrowLeft']?1:0);
+  const diry = (keys['ArrowDown']?1:0)-(keys['ArrowUp']?1:0);
+  if(dirx||diry){ const m=Math.hypot(dirx,diry); r.dx=dirx/m; r.dy=diry/m; }
+  r.vx += (dirx*3.4-r.vx)*0.18*s;  r.vy += (diry*3.0-r.vy)*0.18*s;
+  r.x += r.vx*s;  r.y += r.vy*s;
+  if(r.cd>0) r.cd -= dt;
+  // 뗏목이 항상 물 위에 있도록 강폭/화면 밴드로 클램프
+  const P = s3.dist + S3_K - r.y, riv = s3River(P);
+  const minX = riv.c-riv.hw+38, maxX = riv.c+riv.hw-38;
+  if(r.x<minX){ r.x=minX; r.vx=Math.max(0,r.vx); }
+  if(r.x>maxX){ r.x=maxX; r.vx=Math.min(0,r.vx); }
+  if(r.y<H*0.40){ r.y=H*0.40; r.vy=Math.max(0,r.vy); }
+  if(r.y>H-96){ r.y=H-96; r.vy=Math.min(0,r.vy); }
+  // 발사 (Space 홀드 연사)
+  if(keys['Space']) fireS3();
+  // ---- 스폰 : 바위 (강바닥에 고정, 항상 통과 가능한 수로 확보) ----
+  while(s3.nextRock < s3.dist + S3_K + 80){
+    const pr = s3.nextRock, rv = s3River(pr);
+    const rr = 12 + Math.random()*Math.max(6, Math.min(26, rv.hw-70));
+    let xo;
+    if(rv.hw>=160 && Math.random()<0.45){
+      xo = (Math.random()*2-1)*(rv.hw-rr-60);                       // 넓은 강: 중앙 부근
+    }else{
+      const sd = Math.random()<0.5?-1:1;
+      xo = sd*(rv.hw-rr-42+Math.random()*18);                       // 좁은 강: 한쪽 강변에 붙여 반대편 수로 확보
+    }
+    if(Math.abs(xo)+rr <= rv.hw-8)
+      s3.rocks.push({ p:pr, x:rv.c+xo, r:rr, seed:Math.random()*100 });
+    s3.nextRock += 130 + Math.random()*190;
+  }
+  // ---- 스폰 : 떠내려오는 고목 (하류로 표류) ----
+  while(s3.nextLog < s3.dist + S3_K + 80){
+    const pl = s3.nextLog, rv = s3River(pl), lw = 60+Math.random()*100;
+    s3.logs.push({ p:pl, x: rv.c+(Math.random()*2-1)*Math.max(20,rv.hw-lw/2-20),
+      w:lw, h:24+Math.random()*14, rot:(Math.random()*2-1)*0.35 });
+    s3.nextLog += 260 + Math.random()*340;
+  }
+  // ---- 스폰 : 금괴 / 무기(권총 강화) / 하트 ----
+  while(s3.nextGold < s3.dist + S3_K + 80){
+    const pg = s3.nextGold, rv = s3River(pg);
+    s3.items.push({ kind:'gold', p:pg, x:rv.c+(Math.random()*2-1)*Math.max(20,rv.hw-46), t:Math.random()*6 });
+    s3.nextGold += 520 + Math.random()*720;
+  }
+  while(s3.nextItem < s3.dist + S3_K + 80){
+    const pi = s3.nextItem, rv = s3River(pi);
+    s3.items.push({ kind:'weapon', p:pi, x:rv.c+(Math.random()*2-1)*Math.max(20,rv.hw-50), t:Math.random()*6 });
+    s3.nextItem += 2900 + Math.random()*1700;
+  }
+  while(s3.nextHeart < s3.dist + S3_K + 80){
+    const ph = s3.nextHeart, rv = s3River(ph);
+    s3.items.push({ kind:'heart', p:ph, x:rv.c+(Math.random()*2-1)*Math.max(20,rv.hw-46), t:Math.random()*6 });
+    s3.nextHeart += 4400 + Math.random()*2800;
+  }
+  // ---- 카누 (앞쪽에서 나타나 앞뒤좌우 자유 이동, 독화살 발사) ----
+  s3.canoeT -= dt;
+  if(s3.canoeT<=0 && s3.canoes.length<3){
+    const rc = s3River(s3.dist + S3_K - 60);
+    s3.canoes.push({ x:rc.c+(Math.random()*2-1)*Math.max(20,rc.hw-60), y:-50,
+      vx:0, vy:0, hp:2, t:Math.random()*6, ph:Math.random()*6.28,
+      fireT:1.2+Math.random()*1.2, sink:0, f:1, flash:0 });
+    s3.canoeT = 2.6 + Math.random()*2.2;
+  }
+  // ---- 오브젝트 갱신 ----
+  for(const rp of s3.ripples){ rp.y += rp.v*dt; if(rp.y>H+30) Object.assign(rp, s3NewRipple(-20)); }
+  for(const lg of s3.logs) lg.p -= 26*dt;            // 고목은 유속보다 빠르게 표류
+  for(const it of s3.items){ it.p -= 20*dt; it.t += dt; }
+  s3.rocks = s3.rocks.filter(o=>o.p > s3.dist-200);
+  s3.logs  = s3.logs.filter(o=>o.p > s3.dist-200);
+  s3.items = s3.items.filter(o=>o.p > s3.dist-200);
+  // 카누 AI : 뗏목 주위를 부유하며 거리 유지, 조준 발사
+  for(let i=s3.canoes.length-1;i>=0;i--){
+    const e = s3.canoes[i];
+    e.t += dt; if(e.flash>0) e.flash-=dt;
+    if(e.sink>0){ e.sink += dt*1.4; if(e.sink>=1) s3.canoes.splice(i,1); continue; }
+    const tx = r.x + Math.sin(e.t*0.9+e.ph)*170;
+    const ty = Math.max(80, Math.min(H*0.6, r.y-210+Math.sin(e.t*0.6+e.ph)*50));
+    e.vx = (tx-e.x)*0.045; e.vy = (ty-e.y)*0.045 + 0.5;   // +하류 유속
+    const spd = Math.hypot(e.vx,e.vy);
+    if(spd>2.6){ e.vx*=2.6/spd; e.vy*=2.6/spd; }
+    e.x += e.vx*s; e.y += e.vy*s;
+    const pc = s3.dist+S3_K-e.y, rc = s3River(pc);
+    e.x = Math.max(rc.c-rc.hw+24, Math.min(rc.c+rc.hw-24, e.x));
+    e.f = e.vx>=0?1:-1;
+    e.fireT -= dt;
+    if(e.fireT<=0){
+      e.fireT = 1.5+Math.random()*1.1;
+      const ddx=r.x-e.x, ddy=r.y-e.y, dd=Math.hypot(ddx,ddy)||1;
+      if(dd<400){ s3.darts.push({ x:e.x, y:e.y, vx:ddx/dd*4.3, vy:ddy/dd*4.3, life:2.2 }); sfx('shoot'); }
+    }
+    if(p.hurtInv<=0 && Math.abs(e.x-r.x)<50 && Math.abs(e.y-r.y)<38){   // 카누 접촉
+      const kx = r.x>=e.x?1:-1;
+      damagePlayer(1,kx); e.vx += kx*5; e.vy -= 2.5;
+      burst(e.x,e.y,'#8a6a3a',10);
+    }
+  }
+  s3.canoes = s3.canoes.filter(e=>e.y<H+80);
+  // 적 독화살
+  for(let i=s3.darts.length-1;i>=0;i--){
+    const d2 = s3.darts[i];
+    d2.x += d2.vx*s; d2.y += d2.vy*s; d2.life -= dt;
+    let dead = d2.life<=0 || d2.x<-20 || d2.x>W+20 || d2.y<-20 || d2.y>H+20;
+    if(!dead && p.hurtInv<=0 && Math.abs(d2.x-r.x)<36 && Math.abs(d2.y-r.y)<26){
+      damagePlayer(1, d2.vx>0?1:-1); dead = true;
+    }
+    if(dead) s3.darts.splice(i,1);
+  }
+  // 플레이어 총알
+  for(let i=s3.shots.length-1;i>=0;i--){
+    const bl = s3.shots[i];
+    bl.x += bl.vx*s; bl.y += bl.vy*s; bl.dist += Math.hypot(bl.vx,bl.vy)*s;
+    let dead = bl.dist>bl.maxDist || bl.x<-10 || bl.x>W+10 || bl.y<-10 || bl.y>H+10;
+    if(!dead){
+      for(const e of s3.canoes){
+        if(e.sink>0) continue;
+        if(Math.abs(bl.x-e.x)<28 && Math.abs(bl.y-e.y)<18){
+          e.hp--; e.flash=0.12; sfx('hit'); hitstop=0.03;
+          burst(bl.x,bl.y,'#a80f0a',8);
+          if(e.hp<=0){ e.sink=0.001; score+=100; addPopup(e.x,e.y-10,'+100'); burst(e.x,e.y,'#d44',14); }
+          dead = true; break;
+        }
+      }
+    }
+    if(dead) s3.shots.splice(i,1);
+  }
+  // 충돌 : 바위 / 고목
+  for(const rk of s3.rocks){
+    const sy = S3_K-(rk.p-s3.dist);
+    if(Math.abs(sy-r.y)>110) continue;
+    const dx=r.x-rk.x, dy=r.y-sy, rr=rk.r+26;
+    if(dx*dx+dy*dy<rr*rr && p.hurtInv<=0){
+      const kx = dx>=0?1:-1;
+      damagePlayer(1,kx);
+      r.vx = kx*5.5; r.vy = dy>=0?3.5:-3.5;
+      burst(r.x,r.y,'#cfc8b0',12); shake=7; sfx('hit');
+    }
+  }
+  for(const lg of s3.logs){
+    const sy = S3_K-(lg.p-s3.dist);
+    if(Math.abs(sy-r.y)>80) continue;
+    if(overlap({x:r.x-32,y:r.y-22,w:64,h:44},{x:lg.x-lg.w/2,y:sy-lg.h/2,w:lg.w,h:lg.h}) && p.hurtInv<=0){
+      const kx = r.x>=lg.x?1:-1;
+      damagePlayer(1,kx);
+      r.vx = kx*5; r.vy = 3;
+      burst(r.x,r.y,'#8a6a3a',10); shake=6; sfx('hit');
+    }
+  }
+  // 아이템 획득 (S1/S2와 동일 효과: 점수/무기강화/회복)
+  for(let i=s3.items.length-1;i>=0;i--){
+    const it = s3.items[i], sy = S3_K-(it.p-s3.dist);
+    if(Math.abs(sy-r.y)<44 && Math.abs(it.x-r.x)<52){
+      if(it.kind==='gold'){
+        score+=100; addPopup(it.x,sy-8,'+100'); sfx('gem'); burst(it.x,sy,'#ffe36b',10);
+      }else if(it.kind==='weapon'){
+        s3.rapid=12; addPopup(it.x,sy-8,'권총 강화!'); sfx('gem'); burst(it.x,sy,'#ffd75a',12);
+        showToast('권총 강화! 12초간 3연발 속사', 2.2);
+      }else{
+        if(p.hp<p.maxHp){ p.hp++; addPopup(it.x,sy-8,'+1'); }
+        else { score+=100; addPopup(it.x,sy-8,'+100'); }
+        sfx('gem'); burst(it.x,sy,'#e55',10);
+      }
+      s3.items.splice(i,1);
+    }
+  }
+  // 항로 완주 → 클리어(엔딩 크레딧)
+  if(!s3.done && s3.dist>=s3.end){
+    s3.done = true; state='clear'; clearTimer=1.4; sfx('clear');
+  }
+}
+function drawS3(){
+  const d = s3.dist, r = s3.raft;
+  // --- 강물 베이스 (밀림의 강: 짙은 녹색 먹물빛) ---
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#175243'); g.addColorStop(0.5,'#1d5e4b'); g.addColorStop(1,'#154a3c');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // --- 깊은 물결 띠 (느린 시차로 흐름) ---
+  for(let k=0;k<6;k++){
+    const yy = ((d*0.35 + k*140) % (H+140)) - 70;
+    ctx.fillStyle='rgba(10,40,32,0.18)';
+    ctx.beginPath(); ctx.ellipse(W/2 + Math.sin(k*2.3)*260, yy, 300, 26, 0, 0, Math.PI*2); ctx.fill();
+  }
+  // --- 강변 정글 (16px 행 단위 절차 생성: 빽빽한 나무 + 흙 강변) ---
+  for(let y=-16; y<H+16; y+=16){
+    const P = d + S3_K - y, rv = s3River(P);
+    const lx = rv.c-rv.hw, rx = rv.c+rv.hw;
+    ctx.fillStyle='#173a1c';
+    ctx.fillRect(0,y,lx,16); ctx.fillRect(rx,y,W-rx,16);
+    ctx.fillStyle='#1e4a22';
+    if(lx>26) ctx.fillRect(0,y,lx-14,16);
+    if(rx+14<W) ctx.fillRect(rx+14,y,W-rx-14,16);
+    ctx.fillStyle='#6b5a34';
+    ctx.fillRect(lx,y,6,16); ctx.fillRect(rx-6,y,6,16);
+    for(let sd=0; sd<2; sd++){
+      for(let t2=0;t2<2;t2++){
+        const hsh = bhash(P*0.11 + sd*57.3 + t2*13.1);
+        if(sd===0? lx<=40 : W-rx<=40) continue;
+        const tx = sd===0? hsh*(lx-18) : rx+18+hsh*(W-rx-18);
+        const ty2 = y + bhash(P*0.23+sd*31.7+t2*7.7)*14;
+        const tr = 12+hsh*16;
+        ctx.fillStyle = hsh<0.5? '#2c6a2f' : '#255a29';
+        ctx.beginPath(); ctx.arc(tx,ty2,tr,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle='rgba(220,255,180,0.06)';
+        ctx.beginPath(); ctx.arc(tx-tr*0.3,ty2-tr*0.3,tr*0.5,0,Math.PI*2); ctx.fill();
+      }
+    }
+  }
+  // --- 강 쪽으로 넘어진 나무 (장식) ---
+  const kA = Math.floor((d-260)/640), kB = Math.floor((d+H+260)/640);
+  for(let k=kA;k<=kB;k++){
+    if(bhash(k*9.13)>=0.42) continue;
+    const P = k*640 + bhash(k*3.7)*400;
+    const y = S3_K-(P-d);
+    if(y<-170||y>H+170) continue;
+    const rv = s3River(P);
+    const side = bhash(k*4.7)<0.5? -1:1;
+    const bx = side<0? rv.c-rv.hw+6 : rv.c+rv.hw-6;
+    const len = 90+bhash(k*8.3)*90;
+    const ex = bx - side*len*0.8, ey = y + len*0.55;
+    ctx.strokeStyle='#5a3a1a'; ctx.lineWidth=9; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(bx,y); ctx.lineTo(ex,ey); ctx.stroke();
+    ctx.lineWidth=5;
+    ctx.beginPath(); ctx.moveTo((bx+ex)/2,(y+ey)/2); ctx.lineTo((bx+ex)/2+side*22,(y+ey)/2+18); ctx.stroke();
+    ctx.fillStyle='#2c6a2f';
+    ctx.beginPath(); ctx.arc(ex,ey,17,0,Math.PI*2); ctx.arc(ex+side*10,ey+14,13,0,Math.PI*2); ctx.fill();
+  }
+  // --- 흐르는 물결 (위->아래) ---
+  ctx.lineCap='round';
+  for(const rp of s3.ripples){
+    ctx.globalAlpha = rp.a;
+    ctx.strokeStyle = '#bfe8d0'; ctx.lineWidth = rp.w;
+    ctx.beginPath(); ctx.moveTo(rp.x, rp.y);
+    ctx.quadraticCurveTo(rp.x+Math.sin((rp.y+d)*0.05)*6, rp.y+rp.len*0.5, rp.x, rp.y+rp.len);
+    ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+  // 강변 물포임
+  for(let y=0;y<H;y+=24){
+    const P = d + S3_K - y, rv = s3River(P);
+    ctx.strokeStyle='rgba(255,255,255,0.07)'; ctx.lineWidth=2;
+    const j1 = bhash(P*0.31)*10, j2 = bhash(P*0.37)*10;
+    ctx.beginPath(); ctx.moveTo(rv.c-rv.hw+8, y+j1); ctx.lineTo(rv.c-rv.hw+26, y+j1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(rv.c+rv.hw-26, y+j2); ctx.lineTo(rv.c+rv.hw-8, y+j2); ctx.stroke();
+  }
+  // --- 바위 (강에서 솟아남 + 주위 물포임) ---
+  for(const rk of s3.rocks){
+    const sy = S3_K-(rk.p-d);
+    if(sy<-60||sy>H+60) continue;
+    ctx.fillStyle='rgba(255,255,255,0.13)';
+    ctx.beginPath(); ctx.ellipse(rk.x, sy, rk.r+9+Math.sin(performance.now()/230+rk.seed)*3, (rk.r+9)*0.55, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='#5d6166';
+    ctx.beginPath(); ctx.ellipse(rk.x,sy,rk.r,rk.r*0.82,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#767c82';
+    ctx.beginPath(); ctx.ellipse(rk.x-rk.r*0.28, sy-rk.r*0.3, rk.r*0.55, rk.r*0.4, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='#3f4348';
+    ctx.beginPath(); ctx.ellipse(rk.x+rk.r*0.2, sy+rk.r*0.28, rk.r*0.5, rk.r*0.3, 0, 0, Math.PI*2); ctx.fill();
+  }
+  // --- 떠내려오는 고목 ---
+  for(const lg of s3.logs){
+    const sy = S3_K-(lg.p-d);
+    if(sy<-80||sy>H+80) continue;
+    ctx.save(); ctx.translate(lg.x,sy); ctx.rotate(lg.rot);
+    ctx.fillStyle='rgba(0,0,0,0.18)';
+    ctx.beginPath(); ctx.ellipse(0,4,lg.w/2+6,lg.h/2+4,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#6e4a24';
+    ctx.fillRect(-lg.w/2+lg.h/2,-lg.h/2,lg.w-lg.h,lg.h);
+    ctx.beginPath(); ctx.arc(-lg.w/2+lg.h/2,0,lg.h/2,0,Math.PI*2); ctx.arc(lg.w/2-lg.h/2,0,lg.h/2,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#553818'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(-lg.w/2+lg.h/2,-lg.h/6); ctx.lineTo(lg.w/2-lg.h/2,-lg.h/6); ctx.stroke();
+    ctx.fillStyle='#a97c46';
+    ctx.beginPath(); ctx.arc(lg.w/2-lg.h/2,0,lg.h/2-2,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#7a5426';
+    ctx.beginPath(); ctx.arc(lg.w/2-lg.h/2,0,lg.h/2-5,0,Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+  // --- 아이템 (금괴/무기 상자/하트) ---
+  for(const it of s3.items){
+    const sy = S3_K-(it.p-d), bob = Math.sin(it.t*3)*3;
+    if(sy<-40||sy>H+40) continue;
+    if(it.kind==='gold'){
+      ctx.fillStyle='rgba(255,255,255,0.12)';
+      ctx.beginPath(); ctx.ellipse(it.x,sy+8,16,5,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#e8b93a';
+      ctx.beginPath(); ctx.moveTo(it.x-13,sy+6+bob); ctx.lineTo(it.x-8,sy-6+bob);
+      ctx.lineTo(it.x+8,sy-6+bob); ctx.lineTo(it.x+13,sy+6+bob); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#ffe36b'; ctx.fillRect(it.x-8,sy-6+bob,16,3);
+      ctx.fillStyle='#c99a22'; ctx.fillRect(it.x-13,sy+3+bob,26,3);
+    }else if(it.kind==='weapon'){
+      ctx.fillStyle='#8a6a3a'; ctx.fillRect(it.x-13,sy-13+bob,26,26);
+      ctx.strokeStyle='#5a3a1a'; ctx.lineWidth=2; ctx.strokeRect(it.x-13,sy-13+bob,26,26);
+      ctx.fillStyle='#d84a3a'; ctx.fillRect(it.x-3,sy-13+bob,6,26); ctx.fillRect(it.x-13,sy-3+bob,26,6);
+    }else{
+      ctx.fillStyle='#e04848';
+      ctx.beginPath(); ctx.arc(it.x-5,sy-3+bob,6,0,Math.PI*2); ctx.arc(it.x+5,sy-3+bob,6,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(it.x-11,sy+bob); ctx.lineTo(it.x,sy+12+bob); ctx.lineTo(it.x+11,sy+bob); ctx.closePath(); ctx.fill();
+    }
+  }
+  // --- 카누 적 ---
+  for(const e of s3.canoes){
+    const bob = Math.sin(e.t*4)*2;
+    ctx.save();
+    ctx.globalAlpha = e.sink>0? Math.max(0,1-e.sink) : 1;
+    ctx.translate(e.x, e.y+bob+(e.sink>0?e.sink*14:0));
+    if(e.sink>0) ctx.rotate(e.sink*1.1*e.f);
+    ctx.fillStyle='rgba(0,0,0,0.15)';
+    ctx.beginPath(); ctx.ellipse(0,8,26,9,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = e.flash>0? '#fff' : '#7a4a22';
+    ctx.beginPath();
+    ctx.moveTo(-30,0); ctx.quadraticCurveTo(-18,-9,0,-9); ctx.quadraticCurveTo(18,-9,30,0);
+    ctx.quadraticCurveTo(18,9,0,9); ctx.quadraticCurveTo(-18,9,-30,0); ctx.fill();
+    ctx.fillStyle='#5a3416';
+    ctx.beginPath(); ctx.ellipse(0,0,20,5,0,0,Math.PI*2); ctx.fill();
+    // 패들러 (머리+어깨)
+    ctx.fillStyle='#a87a48'; ctx.beginPath(); ctx.ellipse(0,-1,9,6,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#8a5f34'; ctx.beginPath(); ctx.arc(0,-2,5.5,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#c9302c'; ctx.fillRect(-6,-10,12,3);
+    // 노 젓기
+    const pd = Math.sin(e.t*7)*10;
+    ctx.strokeStyle='#6e4a24'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(e.f*-14,0); ctx.lineTo(e.f*-14+pd,12); ctx.stroke();
+    ctx.restore();
+  }
+  // --- 뗏목 + 존스 (상단 시점: 머리+어깨만) ---
+  const bob2 = Math.sin(performance.now()/300)*2;
+  const tilt = Math.max(-0.09, Math.min(0.09, r.vx*0.02));
+  ctx.save(); ctx.translate(r.x, r.y+bob2); ctx.rotate(tilt);
+  ctx.fillStyle='rgba(0,0,0,0.2)';
+  ctx.beginPath(); ctx.ellipse(0,10,42,16,0,0,Math.PI*2); ctx.fill();
+  for(let i=-1;i<=1;i++){
+    ctx.fillStyle = i===0? '#8a6234' : '#79541f';
+    ctx.fillRect(-34,i*13-6,68,12);
+    ctx.strokeStyle='#5f3f18'; ctx.lineWidth=1.4;
+    ctx.strokeRect(-34,i*13-6,68,12);
+    ctx.beginPath(); ctx.moveTo(-30,i*13-1); ctx.lineTo(30,i*13-1); ctx.stroke();
+  }
+  ctx.strokeStyle='#d9c27a'; ctx.lineWidth=2;
+  for(const rxp of [-20,20]){
+    ctx.beginPath(); ctx.moveTo(rxp-8,-20); ctx.lineTo(rxp+8,20);
+    ctx.moveTo(rxp+8,-20); ctx.lineTo(rxp-8,20); ctx.stroke();
+  }
+  ctx.fillStyle='#4a6a3a'; ctx.beginPath(); ctx.ellipse(0,2,13,9,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#e8b98a'; ctx.beginPath(); ctx.arc(0,-1,7.5,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#5a3a1a'; ctx.beginPath(); ctx.arc(0,-1,7.5,Math.PI*0.95,Math.PI*2.05); ctx.fill();
+  const gx = r.dx*20 - r.dy*6, gy = r.dy*20 + r.dx*6;
+  ctx.strokeStyle='#e8b98a'; ctx.lineWidth=4; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(0,2); ctx.lineTo(gx*0.7, gy*0.7+2); ctx.stroke();
+  ctx.fillStyle='#2f2f2f';
+  ctx.fillRect(gx*0.7-2+r.dx*8, gy*0.7+r.dy*8, 8+Math.abs(r.dx)*6, 5);
+  if(s3.rapid>0){
+    ctx.fillStyle='rgba(255,120,60,'+(0.25+0.15*Math.sin(performance.now()/90))+')';
+    ctx.beginPath(); ctx.arc(gx*0.7+r.dx*16, gy*0.7+2+r.dy*16, 5, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+  // --- 총알/독화살 ---
+  for(const bl of s3.shots){
+    ctx.strokeStyle='#ffe36b'; ctx.lineWidth=2.4; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(bl.x-bl.vx*1.6, bl.y-bl.vy*1.6); ctx.lineTo(bl.x,bl.y); ctx.stroke();
+  }
+  for(const d2 of s3.darts){
+    ctx.strokeStyle='#8fd44a'; ctx.lineWidth=2.2;
+    ctx.beginPath(); ctx.moveTo(d2.x-d2.vx*2, d2.y-d2.vy*2); ctx.lineTo(d2.x,d2.y); ctx.stroke();
+    ctx.fillStyle='#c9f26b'; ctx.beginPath(); ctx.arc(d2.x,d2.y,2,0,Math.PI*2); ctx.fill();
+  }
+  // --- 항로 진행 바 + 종반 연출 ---
+  const prog = Math.min(1, d/s3.end);
+  ctx.fillStyle='rgba(0,0,0,0.4)'; ctx.fillRect(W/2-140,12,280,8);
+  ctx.fillStyle='#ffe36b'; ctx.fillRect(W/2-139,13,278*prog,6);
+  ctx.fillStyle='#c9a86a'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('밀림의 강', W/2, 34);
+  if(prog>0.88){
+    ctx.fillStyle='rgba(255,220,120,'+(0.5+0.5*Math.sin(performance.now()/200))+')';
+    ctx.font='bold 20px sans-serif';
+    ctx.fillText('상류 부두가 보인다!', W/2, 64);
+  }
+  ctx.textAlign='left';
+  // --- 비네트 ---
+  const vg = ctx.createRadialGradient(W/2,H/2,H*0.45, W/2,H/2,H*0.85);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,10,6,0.35)');
+  ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+}
 // ============================================================
 //  메인 루프
 // ============================================================
@@ -2992,6 +3455,7 @@ function init(){
       creditsOnly = true; state='clear'; creditT=3; clearTimer=0;
     }
     if(usp.get('stage')==='2'){ startGame(2); }
+    if(usp.get('stage')==='3'){ startGame(3); }
   }catch(e){}
   requestAnimationFrame(loop);
 }
