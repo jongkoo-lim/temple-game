@@ -2692,7 +2692,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.61]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.62]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2778,7 +2778,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.61 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.62 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
@@ -3209,7 +3209,7 @@ function updateS3(dt, s){
   }
   for(const lg of s3.logs){
     if(lg.split>0) continue;
-    const sy = S3_K-(lg.p-d);
+    const sy = S3_K-(lg.p-s3.dist);
     if(Math.abs(sy-r.y)>80) continue;
     if(overlap({x:r.x-32,y:r.y-22,w:64,h:44},{x:lg.x-lg.w/2,y:sy-lg.h/2,w:lg.w,h:lg.h}) && p.hurtInv<=0){
       const kx = r.x>=lg.x?1:-1;
