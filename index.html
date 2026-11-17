@@ -2692,7 +2692,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.59]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.60]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2778,7 +2778,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.59 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.60 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
@@ -3005,10 +3005,11 @@ function drawGameOver(){
 //  - 강폭은 절차적(결정론적 해시)으로 넓었다 좁았다 하고, 양안은 빽빽한 정글 +
 //    간간이 강 쪽으로 넘어진 나무. 장애물=바위/떠내려오는 고목, 적=카누(독화살)
 // ============================================================
-// 강은 11자 형(직선 강변) - 중심 고정, 폭만 세그먼트 보간으로 넓었다 좁았다 (v2.58: 2배 폭)
+// 강은 11자 형(직선 강변) - 중심 고정, 폭만 세그먼트 보간으로 변화
+// ★ v2.60: 세그먼트 160->480px, 진폭 300->230px - 경계선 움직임을 완만하게
 function s3River(P){
-  const k = P/160, i = Math.floor(k), t = k-i;
-  const a = 170 + bhash(i*7.3)*150, b = 170 + bhash((i+1)*7.3)*150;
+  const k = P/480, i = Math.floor(k), t = k-i;
+  const a = 195 + bhash(i*7.3)*115, b = 195 + bhash((i+1)*7.3)*115;
   const e = t*t*(3-2*t);
   return { c: W*0.5, hw: a+(b-a)*e };
 }
@@ -3233,8 +3234,8 @@ function drawS3(){
   // --- 밀림 강변 (★ 강물과 동일 속도, 슬롯 앵커 = 깜빡임 없음, 4레이어 고퀄) ---
   const edgeAt = (yy)=> s3River(d + S3_K - yy);
   // [1] 원경 실루엣 캐노피 (짙은 어둠, 강변 안쪽 깊이감)
-  for(let j=Math.floor((d-90)/72); j<=Math.floor((d+H+90)/72); j++){
-    const y = j*72 - d + bhash(j*19.3)*30;
+  for(let j=Math.floor((-d-90)/72); j<=Math.floor((H+90-d)/72); j++){
+    const y = j*72 + d + bhash(j*19.3)*30;
     for(let sd=0;sd<2;sd++){
       const h1=bhash(j*31.7+sd*13.1), e=edgeAt(y);
       const bw = sd===0? e.c-e.hw : W-(e.c+e.hw);
@@ -3261,8 +3262,8 @@ function drawS3(){
     ctx.fillRect(lx,y,14,16); ctx.fillRect(rx-14,y,14,16);
   }
   // [3] 메인 캐노피 클러스터 (줄기 + 4덩어리 잎 + 하이라이트)
-  for(let j=Math.floor((d-90)/56); j<=Math.floor((d+H+90)/56); j++){
-    const y = j*56 - d + (bhash(j*23.7)-0.5)*20;
+  for(let j=Math.floor((-d-90)/56); j<=Math.floor((H+90-d)/56); j++){
+    const y = j*56 + d + (bhash(j*23.7)-0.5)*20;
     for(let sd=0; sd<2; sd++){
       for(let t2=0;t2<2;t2++){
         const h1=bhash(j*17.3+sd*7.7+t2*3.9), h2=bhash(j*5.1+sd*11.3+t2), h3=bhash(j*2.7+sd+t2*23.7);
@@ -3287,8 +3288,8 @@ function drawS3(){
     }
   }
   // [4] 물가 풀/덤불/물속 뿌리 (경계선에 붙어 강 위로 살짝 늘어짐)
-  for(let j=Math.floor((d-40)/40); j<=Math.floor((d+H+40)/40); j++){
-    const y = j*40 - d + bhash(j*3.3)*18;
+  for(let j=Math.floor((-d-40)/40); j<=Math.floor((H+40-d)/40); j++){
+    const y = j*40 + d + bhash(j*3.3)*18;
     const e=edgeAt(y);
     for(let sd=0;sd<2;sd++){
       const bx = sd===0? e.c-e.hw : e.c+e.hw, inw = sd===0? 1 : -1;
@@ -3305,10 +3306,10 @@ function drawS3(){
     }
   }
   // --- 강 쪽으로 넘어진 나무 (장식, 줄기 심질+그늘+큰 수관) ---
-  const jA = Math.floor((d-200)/640), jB = Math.floor((d+H+200)/640);
+  const jA = Math.floor((-d-200)/640), jB = Math.floor((H+200-d)/640);
   for(let j=jA;j<=jB;j++){
     if(bhash(j*9.13)>=0.42) continue;
-    const y = j*640 - d + bhash(j*3.7)*300;
+    const y = j*640 + d + bhash(j*3.7)*300;
     if(y<-170||y>H+170) continue;
     const e=edgeAt(y);
     const side = bhash(j*4.7)<0.5? -1:1;
