@@ -2692,7 +2692,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.57]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.58]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2778,7 +2778,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.57 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.58 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
@@ -3005,53 +3005,56 @@ function drawGameOver(){
 //  - 강폭은 절차적(결정론적 해시)으로 넓었다 좁았다 하고, 양안은 빽빽한 정글 +
 //    간간이 강 쪽으로 넘어진 나무. 장애물=바위/떠내려오는 고목, 적=카누(독화살)
 // ============================================================
-function s3Seg(k){
-  return { c: W*0.5 + (bhash(k*13.7)-0.5)*300 + Math.sin(k*0.7)*60,
-           hw: 88 + bhash(k*7.3)*130 };
-}
-// 경로 위치 P(px)에서의 강 중심/반폭 (세그먼트 보간 = 매끄러운 굽이와 폭 변화)
+// 강은 11자 형(직선 강변) - 중심 고정, 폭만 세그먼트 보간으로 넓었다 좁았다 (v2.58: 2배 폭)
 function s3River(P){
   const k = P/160, i = Math.floor(k), t = k-i;
-  const a = s3Seg(i), b = s3Seg(i+1), e = t*t*(3-2*t);
-  return { c: a.c+(b.c-a.c)*e, hw: a.hw+(b.hw-a.hw)*e };
+  const a = 170 + bhash(i*7.3)*150, b = 170 + bhash((i+1)*7.3)*150;
+  const e = t*t*(3-2*t);
+  return { c: W*0.5, hw: a+(b-a)*e };
 }
 function initS3(){
-  s3 = { dist:0, speed:150,
+  s3 = { dist:0, speed:95,              // ★ 스크롤 속도 150->95 : 강변 나무가 천천히 지나가도록
     raft:{ x:W/2, y:H-170, vx:0, vy:0, dx:0, dy:-1, cd:0 },
     rocks:[], logs:[], canoes:[], shots:[], darts:[], items:[], ripples:[],
-    nextRock:500, nextLog:900, nextGold:1300, nextItem:3400, nextHeart:5600,
-    canoeT:1.4, rapid:0, end:S3_END, done:false };
+    nextRock:S3_END*0.34+200,           // ★ 구성: 0~34% 잔잔(고목만) / 34~66% 장애물 / 66%~ 적
+    nextLog:800, nextGold:1300, nextItem:3400, nextHeart:5600,
+    canoeT:99, rapid:0, end:S3_END, done:false, phase:0 };
   for(let i=0;i<46;i++) s3.ripples.push(s3NewRipple(Math.random()*H));
 }
 function s3NewRipple(y){
   const riv = s3River(s3.dist + S3_K - y);
   return { x: riv.c + (Math.random()*2-1)*Math.max(10,(riv.hw-14)), y,
-    len: 12+Math.random()*26, v: 150*(1.05+Math.random()*0.35),
+    len: 12+Math.random()*26, v: s3.speed*(1.05+Math.random()*0.35),
     a: 0.07+Math.random()*0.15, w: 0.8+Math.random()*1.6 };
 }
-// 권총 발사 : 조준 방향(dx,dy)으로 1발(강화 시 3연발)
+// 권총 발사 : ★ 항상 앞쪽(위)으로만 발사 (v2.58)
 function fireS3(){
   const r = s3.raft;
   if(r.cd>0) return;
   r.cd = s3.rapid>0 ? 0.13 : 0.30;
   const lv = s3.rapid>0 ? 3 : 1;
   for(let i=0;i<lv;i++){
-    const sp = (i-(lv-1)/2)*10, px = -r.dy, py = r.dx;   // 진행축에 수직으로 퍼짐
-    s3.shots.push({ x:r.x + r.dx*36 + px*sp, y:r.y + r.dy*36 + py*sp,
-      vx:r.dx*11, vy:r.dy*11, dist:0, maxDist:560 });
+    const sp = (i-(lv-1)/2)*12;         // 앞으로만: 수평으로만 분산
+    s3.shots.push({ x:r.x+sp, y:r.y-36, vx:0, vy:-11, dist:0, maxDist:560 });
   }
   sfx('shoot');
-  burst(r.x + r.dx*40, r.y + r.dy*40, '#ffd75a', 4);
+  burst(r.x, r.y-40, '#ffd75a', 4);
 }
 function updateS3(dt, s){
   camX = 0;                              // 팝업은 스크린 좌표
   const r = s3.raft;
   s3.dist += s3.speed*dt;                // 항로 진행 (강물이 아래로 흐르는 효과)
+  // ★ 치명타 버그 수정: S3에선 updatePlayer가 호출되지 않아 hurtInv(피격 무적)가
+  //    영원히 감쇠하지 않았음 -> 모든 충돌 판정이 막혀 장애물이 안 걸렸던 원인
+  if(p.hurtInv>0) p.hurtInv -= dt;
   if(s3.rapid>0) s3.rapid -= dt;
+  // 구간 전환 연출
+  const prog = s3.dist/s3.end;
+  if(s3.phase===0 && prog>=0.34){ s3.phase=1; showToast('급류 구간! 바위와 고목에 조심하라', 3); sfx('door'); }
+  if(s3.phase===1 && prog>=0.66){ s3.phase=2; showToast('원주민 카누가 나타난다!', 3); sfx('boss'); }
   // 앞뒤좌우 이동
   const dirx = (keys['ArrowRight']?1:0)-(keys['ArrowLeft']?1:0);
   const diry = (keys['ArrowDown']?1:0)-(keys['ArrowUp']?1:0);
-  if(dirx||diry){ const m=Math.hypot(dirx,diry); r.dx=dirx/m; r.dy=diry/m; }
   r.vx += (dirx*3.4-r.vx)*0.18*s;  r.vy += (diry*3.0-r.vy)*0.18*s;
   r.x += r.vx*s;  r.y += r.vy*s;
   if(r.cd>0) r.cd -= dt;
@@ -3069,22 +3072,22 @@ function updateS3(dt, s){
     const pr = s3.nextRock, rv = s3River(pr);
     const rr = 12 + Math.random()*Math.max(6, Math.min(26, rv.hw-70));
     let xo;
-    if(rv.hw>=160 && Math.random()<0.45){
-      xo = (Math.random()*2-1)*(rv.hw-rr-60);                       // 넓은 강: 중앙 부근
+    if(rv.hw>=260 && Math.random()<0.5){
+      xo = (Math.random()*2-1)*(rv.hw-rr-90);                       // 넓은 강: 중앙 부근(양쪽 수로 확보)
     }else{
       const sd = Math.random()<0.5?-1:1;
-      xo = sd*(rv.hw-rr-42+Math.random()*18);                       // 좁은 강: 한쪽 강변에 붙여 반대편 수로 확보
+      xo = sd*(rv.hw-rr-42+Math.random()*18);                       // 한쪽 강변에 붙여 반대편 수로 확보
     }
     if(Math.abs(xo)+rr <= rv.hw-8)
       s3.rocks.push({ p:pr, x:rv.c+xo, r:rr, seed:Math.random()*100 });
     s3.nextRock += 130 + Math.random()*190;
   }
-  // ---- 스폰 : 떠내려오는 고목 (하류로 표류) ----
+  // ---- 스폰 : 떠내려오는 고목 (초반엔 드물게, 급류 구간부터 촘촘히) ----
   while(s3.nextLog < s3.dist + S3_K + 80){
     const pl = s3.nextLog, rv = s3River(pl), lw = 60+Math.random()*100;
     s3.logs.push({ p:pl, x: rv.c+(Math.random()*2-1)*Math.max(20,rv.hw-lw/2-20),
       w:lw, h:24+Math.random()*14, rot:(Math.random()*2-1)*0.35 });
-    s3.nextLog += 260 + Math.random()*340;
+    s3.nextLog += (s3.phase===0? 700+Math.random()*900 : 300+Math.random()*380);
   }
   // ---- 스폰 : 금괴 / 무기(권총 강화) / 하트 ----
   while(s3.nextGold < s3.dist + S3_K + 80){
@@ -3102,14 +3105,14 @@ function updateS3(dt, s){
     s3.items.push({ kind:'heart', p:ph, x:rv.c+(Math.random()*2-1)*Math.max(20,rv.hw-46), t:Math.random()*6 });
     s3.nextHeart += 4400 + Math.random()*2800;
   }
-  // ---- 카누 (앞쪽에서 나타나 앞뒤좌우 자유 이동, 독화살 발사) ----
+  // ---- 카누 (66% 구간부터 등장) ----
   s3.canoeT -= dt;
-  if(s3.canoeT<=0 && s3.canoes.length<3){
+  if(s3.phase===2 && s3.canoeT<=0 && s3.canoes.length<2){
     const rc = s3River(s3.dist + S3_K - 60);
     s3.canoes.push({ x:rc.c+(Math.random()*2-1)*Math.max(20,rc.hw-60), y:-50,
-      vx:0, vy:0, hp:2, t:Math.random()*6, ph:Math.random()*6.28,
-      fireT:1.2+Math.random()*1.2, sink:0, f:1, flash:0 });
-    s3.canoeT = 2.6 + Math.random()*2.2;
+      vx:(Math.random()<0.5?-0.8:0.8), vy:0, hp:2, t:Math.random()*6,
+      fireT:2.2+Math.random()*1.6, sink:0, f:1, flash:0 });
+    s3.canoeT = 3.4 + Math.random()*2.4;
   }
   // ---- 오브젝트 갱신 ----
   for(const rp of s3.ripples){ rp.y += rp.v*dt; if(rp.y>H+30) Object.assign(rp, s3NewRipple(-20)); }
@@ -3118,29 +3121,26 @@ function updateS3(dt, s){
   s3.rocks = s3.rocks.filter(o=>o.p > s3.dist-200);
   s3.logs  = s3.logs.filter(o=>o.p > s3.dist-200);
   s3.items = s3.items.filter(o=>o.p > s3.dist-200);
-  // 카누 AI : 뗏목 주위를 부유하며 거리 유지, 조준 발사
+  // 카누 : 일정한 느린 속도로 좌우 순항 + 하류로 천천히 표류, 앞으로만 발사
   for(let i=s3.canoes.length-1;i>=0;i--){
     const e = s3.canoes[i];
     e.t += dt; if(e.flash>0) e.flash-=dt;
     if(e.sink>0){ e.sink += dt*1.4; if(e.sink>=1) s3.canoes.splice(i,1); continue; }
-    const tx = r.x + Math.sin(e.t*0.9+e.ph)*170;
-    const ty = Math.max(80, Math.min(H*0.6, r.y-210+Math.sin(e.t*0.6+e.ph)*50));
-    e.vx = (tx-e.x)*0.045; e.vy = (ty-e.y)*0.045 + 0.5;   // +하류 유속
-    const spd = Math.hypot(e.vx,e.vy);
-    if(spd>2.6){ e.vx*=2.6/spd; e.vy*=2.6/spd; }
-    e.x += e.vx*s; e.y += e.vy*s;
+    e.x += e.vx*s;                    // 좌우 등속 순찰
+    e.y += 0.3*s;                     // 하류로 아주 천천히 표류 ( 화면에 오래 머묾 )
     const pc = s3.dist+S3_K-e.y, rc = s3River(pc);
-    e.x = Math.max(rc.c-rc.hw+24, Math.min(rc.c+rc.hw-24, e.x));
+    if(e.x < rc.c-rc.hw+30){ e.x=rc.c-rc.hw+30; e.vx=Math.abs(e.vx); }
+    if(e.x > rc.c+rc.hw-30){ e.x=rc.c+rc.hw-30; e.vx=-Math.abs(e.vx); }
     e.f = e.vx>=0?1:-1;
     e.fireT -= dt;
     if(e.fireT<=0){
-      e.fireT = 1.5+Math.random()*1.1;
-      const ddx=r.x-e.x, ddy=r.y-e.y, dd=Math.hypot(ddx,ddy)||1;
-      if(dd<400){ s3.darts.push({ x:e.x, y:e.y, vx:ddx/dd*4.3, vy:ddy/dd*4.3, life:2.2 }); sfx('shoot'); }
+      e.fireT = 2.6+Math.random()*1.8;                    // ★ 발사 간 딜레이 충분히
+      if(e.y < r.y-50 && e.y>-20)                         // 뗏목 앞쪽에서 앞으로(하류 방향)만
+        s3.darts.push({ x:e.x, y:e.y+16, vx:0, vy:4.2, life:3 });
     }
     if(p.hurtInv<=0 && Math.abs(e.x-r.x)<50 && Math.abs(e.y-r.y)<38){   // 카누 접촉
       const kx = r.x>=e.x?1:-1;
-      damagePlayer(1,kx); e.vx += kx*5; e.vy -= 2.5;
+      damagePlayer(1,kx); e.vx += kx*3; 
       burst(e.x,e.y,'#8a6a3a',10);
     }
   }
@@ -3390,14 +3390,13 @@ function drawS3(){
   ctx.fillStyle='#4a6a3a'; ctx.beginPath(); ctx.ellipse(0,2,13,9,0,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='#e8b98a'; ctx.beginPath(); ctx.arc(0,-1,7.5,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='#5a3a1a'; ctx.beginPath(); ctx.arc(0,-1,7.5,Math.PI*0.95,Math.PI*2.05); ctx.fill();
-  const gx = r.dx*20 - r.dy*6, gy = r.dy*20 + r.dx*6;
+  // 권총 (★ 항상 앞쪽=위로만 발사)
   ctx.strokeStyle='#e8b98a'; ctx.lineWidth=4; ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(0,2); ctx.lineTo(gx*0.7, gy*0.7+2); ctx.stroke();
-  ctx.fillStyle='#2f2f2f';
-  ctx.fillRect(gx*0.7-2+r.dx*8, gy*0.7+r.dy*8, 8+Math.abs(r.dx)*6, 5);
+  ctx.beginPath(); ctx.moveTo(0,2); ctx.lineTo(0,-12); ctx.stroke();
+  ctx.fillStyle='#2f2f2f'; ctx.fillRect(-3,-22,6,10);
   if(s3.rapid>0){
     ctx.fillStyle='rgba(255,120,60,'+(0.25+0.15*Math.sin(performance.now()/90))+')';
-    ctx.beginPath(); ctx.arc(gx*0.7+r.dx*16, gy*0.7+2+r.dy*16, 5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0,-26,5,0,Math.PI*2); ctx.fill();
   }
   ctx.restore();
   // --- 총알/독화살 ---
