@@ -2692,7 +2692,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.58]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.59]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2778,7 +2778,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.58 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.59 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
@@ -3042,6 +3042,7 @@ function fireS3(){
 }
 function updateS3(dt, s){
   camX = 0;                              // 팝업은 스크린 좌표
+  if(shake>0) shake -= dt*30;            // ★ S3 분기는 update()의 shake 감쇠에 도달하기 전 return하므로 여기서 처리
   const r = s3.raft;
   s3.dist += s3.speed*dt;                // 항로 진행 (강물이 아래로 흐르는 효과)
   // ★ 치명타 버그 수정: S3에선 updatePlayer가 호출되지 않아 hurtInv(피격 무적)가
@@ -3229,49 +3230,103 @@ function drawS3(){
     ctx.fillStyle='rgba(10,40,32,0.18)';
     ctx.beginPath(); ctx.ellipse(W/2 + Math.sin(k*2.3)*260, yy, 300, 26, 0, 0, Math.PI*2); ctx.fill();
   }
-  // --- 강변 정글 (16px 행 단위 절차 생성: 빽빽한 나무 + 흙 강변) ---
-  for(let y=-16; y<H+16; y+=16){
-    const P = d + S3_K - y, rv = s3River(P);
-    const lx = rv.c-rv.hw, rx = rv.c+rv.hw;
-    ctx.fillStyle='#173a1c';
+  // --- 밀림 강변 (★ 강물과 동일 속도, 슬롯 앵커 = 깜빡임 없음, 4레이어 고퀄) ---
+  const edgeAt = (yy)=> s3River(d + S3_K - yy);
+  // [1] 원경 실루엣 캐노피 (짙은 어둠, 강변 안쪽 깊이감)
+  for(let j=Math.floor((d-90)/72); j<=Math.floor((d+H+90)/72); j++){
+    const y = j*72 - d + bhash(j*19.3)*30;
+    for(let sd=0;sd<2;sd++){
+      const h1=bhash(j*31.7+sd*13.1), e=edgeAt(y);
+      const bw = sd===0? e.c-e.hw : W-(e.c+e.hw);
+      if(bw<50) continue;
+      const bx = sd===0? e.c-e.hw : e.c+e.hw;
+      const cx = sd===0? bx-34-h1*Math.max(30,bw-60) : bx+34+h1*Math.max(30,bw-60);
+      ctx.fillStyle='rgba(11,36,14,0.9)';
+      ctx.beginPath(); ctx.arc(cx,y, 30+h1*28, 0, Math.PI*2); ctx.fill();
+    }
+  }
+  // [2] 정글 바탕 + 흙 강변 + 물가 그늘 (실제 경계 = 충돌 판정과 정확히 일치)
+  for(let y=-16;y<H+16;y+=16){
+    const e=edgeAt(y), lx=e.c-e.hw, rx=e.c+e.hw;
+    ctx.fillStyle='#16351a';
     ctx.fillRect(0,y,lx,16); ctx.fillRect(rx,y,W-rx,16);
-    ctx.fillStyle='#1e4a22';
-    if(lx>26) ctx.fillRect(0,y,lx-14,16);
-    if(rx+14<W) ctx.fillRect(rx+14,y,W-rx-14,16);
-    ctx.fillStyle='#6b5a34';
-    ctx.fillRect(lx,y,6,16); ctx.fillRect(rx-6,y,6,16);
+    ctx.fillStyle='#1c4420';
+    if(lx>30) ctx.fillRect(0,y,lx-16,16);
+    if(rx+16<W) ctx.fillRect(rx+16,y,W-rx-16,16);
+    ctx.fillStyle='#6b5a34';                       // 흙 강변
+    ctx.fillRect(lx-2,y,8,16); ctx.fillRect(rx-6,y,8,16);
+    ctx.fillStyle='#4f421f';                       // 흙 그늘
+    ctx.fillRect(lx-2,y,3,16); ctx.fillRect(rx+2,y,3,16);
+    ctx.fillStyle='rgba(0,25,12,0.30)';            // 물가 그늘(수면)
+    ctx.fillRect(lx,y,14,16); ctx.fillRect(rx-14,y,14,16);
+  }
+  // [3] 메인 캐노피 클러스터 (줄기 + 4덩어리 잎 + 하이라이트)
+  for(let j=Math.floor((d-90)/56); j<=Math.floor((d+H+90)/56); j++){
+    const y = j*56 - d + (bhash(j*23.7)-0.5)*20;
     for(let sd=0; sd<2; sd++){
       for(let t2=0;t2<2;t2++){
-        const hsh = bhash(P*0.11 + sd*57.3 + t2*13.1);
-        if(sd===0? lx<=40 : W-rx<=40) continue;
-        const tx = sd===0? hsh*(lx-18) : rx+18+hsh*(W-rx-18);
-        const ty2 = y + bhash(P*0.23+sd*31.7+t2*7.7)*14;
-        const tr = 12+hsh*16;
-        ctx.fillStyle = hsh<0.5? '#2c6a2f' : '#255a29';
-        ctx.beginPath(); ctx.arc(tx,ty2,tr,0,Math.PI*2); ctx.fill();
-        ctx.fillStyle='rgba(220,255,180,0.06)';
-        ctx.beginPath(); ctx.arc(tx-tr*0.3,ty2-tr*0.3,tr*0.5,0,Math.PI*2); ctx.fill();
+        const h1=bhash(j*17.3+sd*7.7+t2*3.9), h2=bhash(j*5.1+sd*11.3+t2), h3=bhash(j*2.7+sd+t2*23.7);
+        const e=edgeAt(y);
+        const bw = sd===0? e.c-e.hw : W-(e.c+e.hw);
+        if(bw<70) continue;
+        const bx = sd===0? e.c-e.hw : e.c+e.hw;
+        const cx = sd===0? bx-24-h2*Math.max(14,bw-60) : bx+24+h2*Math.max(14,bw-60);
+        const cy = y + (h3-0.5)*26;
+        const r0 = 15+h1*13;
+        ctx.fillStyle='#4a3320';                   // 줄기 힌트
+        ctx.fillRect(cx-4, cy+6, 8, 16);
+        const cols=['#2d6b30','#275e2a','#1f4f24'];
+        for(let p2=0;p2<4;p2++){
+          const aa=p2*1.7+h1*6.3, rr=p2===0? r0 : r0*(0.55+bhash(j*9.7+p2+sd)*0.25);
+          ctx.fillStyle=cols[p2%3];
+          ctx.beginPath(); ctx.arc(cx+Math.cos(aa)*r0*0.55, cy+Math.sin(aa)*r0*0.45, rr, 0, Math.PI*2); ctx.fill();
+        }
+        ctx.fillStyle='rgba(150,210,100,0.35)';    // 햇빛 하이라이트
+        ctx.beginPath(); ctx.arc(cx-r0*0.3, cy-r0*0.35, r0*0.42, 0, Math.PI*2); ctx.fill();
       }
     }
   }
-  // --- 강 쪽으로 넘어진 나무 (장식) ---
-  const kA = Math.floor((d-260)/640), kB = Math.floor((d+H+260)/640);
-  for(let k=kA;k<=kB;k++){
-    if(bhash(k*9.13)>=0.42) continue;
-    const P = k*640 + bhash(k*3.7)*400;
-    const y = S3_K-(P-d);
+  // [4] 물가 풀/덤불/물속 뿌리 (경계선에 붙어 강 위로 살짝 늘어짐)
+  for(let j=Math.floor((d-40)/40); j<=Math.floor((d+H+40)/40); j++){
+    const y = j*40 - d + bhash(j*3.3)*18;
+    const e=edgeAt(y);
+    for(let sd=0;sd<2;sd++){
+      const bx = sd===0? e.c-e.hw : e.c+e.hw, inw = sd===0? 1 : -1;
+      ctx.fillStyle='#2a5c2c';                     // 물 위로 늘어진 덤불
+      ctx.beginPath(); ctx.ellipse(bx+inw*6, y, 12+bhash(j*7.1+sd)*6, 7, 0, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle='#3f8a3a'; ctx.lineWidth=1.6;
+      for(let g2=0;g2<3;g2++){                     // 풀 3가닥
+        const gx2 = bx - inw*(4+g2*5), gg=bhash(j*13.7+sd*5+g2);
+        ctx.beginPath(); ctx.moveTo(gx2, y+4);
+        ctx.quadraticCurveTo(gx2+inw*2, y-6, gx2+inw*(3+gg*4), y-11-gg*5); ctx.stroke();
+      }
+      ctx.strokeStyle='rgba(58,42,22,0.8)'; ctx.lineWidth=2;   // 물속 뿌리
+      ctx.beginPath(); ctx.moveTo(bx, y+6); ctx.lineTo(bx+inw*(8+bhash(j*6.1+sd)*8), y+12); ctx.stroke();
+    }
+  }
+  // --- 강 쪽으로 넘어진 나무 (장식, 줄기 심질+그늘+큰 수관) ---
+  const jA = Math.floor((d-200)/640), jB = Math.floor((d+H+200)/640);
+  for(let j=jA;j<=jB;j++){
+    if(bhash(j*9.13)>=0.42) continue;
+    const y = j*640 - d + bhash(j*3.7)*300;
     if(y<-170||y>H+170) continue;
-    const rv = s3River(P);
-    const side = bhash(k*4.7)<0.5? -1:1;
-    const bx = side<0? rv.c-rv.hw+6 : rv.c+rv.hw-6;
-    const len = 90+bhash(k*8.3)*90;
+    const e=edgeAt(y);
+    const side = bhash(j*4.7)<0.5? -1:1;
+    const bx = side<0? e.c-e.hw+6 : e.c+e.hw-6;
+    const len = 90+bhash(j*8.3)*90;
     const ex = bx - side*len*0.8, ey = y + len*0.55;
-    ctx.strokeStyle='#5a3a1a'; ctx.lineWidth=9; ctx.lineCap='round';
+    ctx.fillStyle='rgba(0,25,12,0.25)';            // 물 위 그림자
+    ctx.beginPath(); ctx.ellipse((bx+ex)/2,(y+ey)/2+8, len*0.42, 12, 0, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#5a3a1a'; ctx.lineWidth=10; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(bx,y); ctx.lineTo(ex,ey); ctx.stroke();
+    ctx.strokeStyle='#6e4a24'; ctx.lineWidth=5;    // 밝은 심질
     ctx.beginPath(); ctx.moveTo(bx,y); ctx.lineTo(ex,ey); ctx.stroke();
     ctx.lineWidth=5;
     ctx.beginPath(); ctx.moveTo((bx+ex)/2,(y+ey)/2); ctx.lineTo((bx+ex)/2+side*22,(y+ey)/2+18); ctx.stroke();
-    ctx.fillStyle='#2c6a2f';
-    ctx.beginPath(); ctx.arc(ex,ey,17,0,Math.PI*2); ctx.arc(ex+side*10,ey+14,13,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#2d6b30';
+    ctx.beginPath(); ctx.arc(ex,ey,18,0,Math.PI*2); ctx.arc(ex+side*11,ey+15,14,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(150,210,100,0.3)';
+    ctx.beginPath(); ctx.arc(ex-5,ey-6,8,0,Math.PI*2); ctx.fill();
   }
   // --- 흐르는 물결 (위->아래) ---
   ctx.lineCap='round';
@@ -3283,14 +3338,6 @@ function drawS3(){
     ctx.stroke();
   }
   ctx.globalAlpha=1;
-  // 강변 물포임
-  for(let y=0;y<H;y+=24){
-    const P = d + S3_K - y, rv = s3River(P);
-    ctx.strokeStyle='rgba(255,255,255,0.07)'; ctx.lineWidth=2;
-    const j1 = bhash(P*0.31)*10, j2 = bhash(P*0.37)*10;
-    ctx.beginPath(); ctx.moveTo(rv.c-rv.hw+8, y+j1); ctx.lineTo(rv.c-rv.hw+26, y+j1); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(rv.c+rv.hw-26, y+j2); ctx.lineTo(rv.c+rv.hw-8, y+j2); ctx.stroke();
-  }
   // --- 바위 (강에서 솟아남 + 주위 물포임) ---
   for(const rk of s3.rocks){
     const sy = S3_K-(rk.p-d);
