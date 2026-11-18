@@ -330,6 +330,24 @@ function buildLevel(){
     enemies.length=0; blades.length=0; vines.length=0; blocks.length=0; platforms.length=0;
     darts.length=0; boss=null;
     checkpoint = { x:4*TILE, y:16*TILE-46 };
+    level = g;                             // ★ 조기 return 시에도 grid 커밋 필수 (미할당 시 이전 맵 잔존)
+    return;
+  }
+
+  if(stage===4){
+    // ============================================================
+    // [S4] 폭포 아래 동굴 (플레이스홀더 - 본 디자인은 추후 지정)
+    //   ★ 시작 생명 1칸 / 적·함정 없음 / 회복 하트 배치
+    // ============================================================
+    ground(1,40,12);                       // 동굴 바닥
+    fill(1,40,0,3,'#');                    // 동굴 천장
+    set(14,11,'g'); set(22,11,'g'); set(34,11,'g');
+    set(30,11,'h');                        // 회복 하트 (1칸 시작 보완)
+    for(let r=8;r<=11;r++) set(38,r,'D');  // 동굴 깊은 문 (다음 확장 지점)
+    checkpoint = { x:3*TILE, y:12*TILE-46 };
+    enemies.length=0; blades.length=0; vines.length=0; blocks.length=0; platforms.length=0;
+    darts.length=0; boss=null;
+    level = g;                             // ★ 조기 return 시에도 grid 커밋 필수
     return;
   }
 
@@ -621,6 +639,7 @@ window.addEventListener('keydown', e=>{
     if(state==='menu') startGame();
     if(state==='clear'||state==='gameover') restart();
     if(state==='interlude') startStage2();   // 연출 스킵
+    if(state==='interlude3') startStage4();  // 폭포 컷신 스킵
   }
   // 메뉴에서 2 : Stage 2부터 바로 시작 (빠른 검증/시연용)
   if(e.code==='Digit2' && state==='menu'){ startGame(2); }
@@ -671,6 +690,18 @@ function startStage2(){
   camX = Math.max(0, Math.min(p.x-W/2, COLS*TILE-W));
   showToast('STAGE 2 — 정글의 원주민! 독침을 조심하라', 3.2);
 }
+// ★ Stage 3(폭포 낙하) → 4 전환 : ★생명 1칸으로 시작
+function startStage4(){
+  stage = 4;
+  buildLevel();
+  collectGemsFromGrid();
+  resetPlayer();
+  p.hp = 1;                       // ★ 요청 사항: 생명 1칸부터 시작
+  deadInitDone = false; chest = null;
+  state='play'; paused=false;
+  camX = Math.max(0, Math.min(p.x-W/2, COLS*TILE-W));
+  showToast('STAGE 4 — 폭포 아래 어둠 속으로… (생명 1칸!)', 3.8);
+}
 function restart(){ startGame(stage); }
 
 // ---------- 업데이트 ----------
@@ -710,6 +741,10 @@ function update(dt){
     // ★ Stage1→2 연출 : 밀림으로 걸어가는 존스 (7초 후 자동 진행)
     interT += dt; updateParticles(dt);
     if(interT > 7){ startStage2(); }
+  }else if(state==='interlude3'){
+    // ★ Stage3(폭포 낙하) → 4 컷신 : 5.2초 후 STAGE 4 시작
+    interT += dt; updateParticles(dt);
+    if(interT > 5.2){ startStage4(); }
   }else if(state==='gameover'){
     overTimer += dt; updateParticles(dt);
   }
@@ -1638,6 +1673,7 @@ function render(){
   else if(state==='clear') drawClear();
   else if(state==='gameover') drawGameOver();
   else if(state==='interlude') drawInterlude();   // ★ S1→S2 연출 (전체 화면 덮음)
+  else if(state==='interlude3') drawInterlude3(); // ★ S3 폭포→S4 컷신
   if(paused && state==='play') drawPause();
   if(state==='play' && bossActive && !bossDead) drawBossBar();
   if(state==='play' && !bossActive && center(p).x > 158*TILE){
@@ -1650,6 +1686,12 @@ function bhash(n){ const x = Math.sin(n*127.1)*43758.5453; return x - Math.floor
 
 function drawBackground(){
   if(stage===2){ drawJungleBackground(); return; }   // ★ [S2] 정글 배경
+  if(stage===4){                                     // ★ [S4] 폭포 아래 동굴 (어두운 청록)
+    const cg = ctx.createLinearGradient(0,0,0,H);
+    cg.addColorStop(0,'#0c1424'); cg.addColorStop(0.6,'#080d18'); cg.addColorStop(1,'#04060c');
+    ctx.fillStyle=cg; ctx.fillRect(0,0,W,H);
+    return;
+  }
   // 어두운 신전 그라데이션
   const grad = ctx.createLinearGradient(0,0,0,H);
   grad.addColorStop(0,'#141009');
@@ -2692,7 +2734,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.63]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.64]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -2778,7 +2820,36 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.63 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.64 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+}
+// ★ S3 폭포 낙하 → STAGE 4 컷신
+function drawInterlude3(){
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#0a2a30'); g.addColorStop(1,'#04141a');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // 폭포 물줄기 배경
+  for(let i2=0;i2<40;i2++){
+    const x=(i2*53)%W;
+    const yy=((performance.now()/8)*(0.6+bhash(i2)*0.8)+i2*37)%H;
+    ctx.strokeStyle='rgba(180,225,235,'+(0.10+bhash(i2*3)*0.15)+')';
+    ctx.lineWidth=2+bhash(i2*7)*2;
+    ctx.beginPath(); ctx.moveTo(x,yy); ctx.lineTo(x,yy+30+bhash(i2*5)*40); ctx.stroke();
+  }
+  ctx.textAlign='center';
+  if(interT>0.6){ ctx.fillStyle='#cfe8ee'; ctx.font='22px sans-serif'; ctx.fillText('거센 물살에 실려 폭포 아래로 —', W/2, 200); }
+  if(interT>2.2){ ctx.fillStyle='#ffe29a'; ctx.font='bold 46px serif'; ctx.fillText('STAGE 4', W/2, 300); }
+  if(interT>3.6){
+    ctx.fillStyle='#e8d8b8'; ctx.font='16px sans-serif';
+    ctx.fillText('폭포 아래 어둠 속에서 무언가 깨어난다…', W/2, 352);
+    ctx.fillStyle='#ff9a6a'; ctx.font='bold 15px sans-serif';
+    ctx.fillText('※ 생명 1칸으로 시작!', W/2, 388);
+  }
+  if(interT>4.2){
+    const pulse=Math.floor(performance.now()/400)%2===0;
+    ctx.fillStyle=pulse?'#fff':'#ffd95a'; ctx.font='bold 18px sans-serif';
+    ctx.fillText('▶ ENTER — 지금 이동', W/2, 452);
+  }
+  ctx.textAlign='left';
 }
 function drawClear(){
   // ★ 크레딧 단독 모드 (메뉴에서 C / URL ?credits=1) : 클리어 통계 없이 크레딧만
@@ -2992,7 +3063,7 @@ function drawGameOver(){
     ctx.fillText('Wasted', W/2, H/2-12);
     ctx.globalAlpha = wt;
     ctx.font='16px sans-serif'; ctx.fillStyle='#e8d8b8';
-    ctx.fillText(stage===2? '정글의 독침이 당신을 잠재웠다…' : stage===3? '밀림의 강이 당신을 삼켰다…' : '신전의 어둠이 당신을 집어삼켰다…', W/2, H/2+46);
+    ctx.fillText(stage===2? '정글의 독침이 당신을 잠재웠다…' : stage===3? '밀림의 강이 당신을 삼켰다…' : stage===4? '폭포 아래 어둠이 당신을 삼켰다…' : '신전의 어둠이 당신을 집어삼켰다…', W/2, H/2+46);
     ctx.font='bold 22px sans-serif'; ctx.fillStyle='#ffe29a';
     ctx.fillText('ENTER → 다시 도전', W/2, H/2+100);
     ctx.globalAlpha = 1;
@@ -3016,11 +3087,19 @@ function s3River(P){
 function initS3(){
   s3 = { dist:0, speed:95,              // ★ 스크롤 속도 150->95 : 강변 나무가 천천히 지나가도록
     raft:{ x:W/2, y:H-170, vx:0, vy:0, dx:0, dy:-1, cd:0 },
-    rocks:[], logs:[], canoes:[], shots:[], darts:[], items:[], ripples:[],
+    rocks:[], logs:[], canoes:[], shots:[], darts:[], items:[], ripples:[], swirls:[],
     nextRock:S3_END*0.20+200,           // ★ 구성: 0~20% 잔잔(고목만) / 20~50% 장애물 / 50%~ 적
     nextLog:800, nextGold:1300, nextItem:3400, nextHeart:5600,
-    canoeT:99, rapid:0, end:S3_END, done:false, phase:0 };
+    canoeT:99, rapid:0, end:S3_END, done:false, phase:0, falling:false, fallT:0 };
   for(let i=0;i<46;i++) s3.ripples.push(s3NewRipple(Math.random()*H));
+  for(let i=0;i<7;i++)  s3.swirls.push(s3NewSwirl(Math.random()*H));
+}
+// ★ 리얼 소용돌이: 회전 나선팔 3개 + 그림자 나선 + 중심 눈 + 거품
+function s3NewSwirl(y){
+  const riv = s3River(s3.dist + S3_K - y);
+  return { x: riv.c + (Math.random()*2-1)*Math.max(20, riv.hw-40), y,
+    r: 16+Math.random()*26, rot: Math.random()*6.28,
+    rotV: (Math.random()<0.5?-1:1)*(0.7+Math.random()*0.9) };
 }
 function s3NewRipple(y){
   const riv = s3River(s3.dist + S3_K - y);
@@ -3045,6 +3124,16 @@ function updateS3(dt, s){
   camX = 0;                              // 팝업은 스크린 좌표
   if(shake>0) shake -= dt*30;            // ★ S3 분기는 update()의 shake 감쇠에 도달하기 전 return하므로 여기서 처리
   const r = s3.raft;
+  // ★ 폭포 낙하 시퀀스: 낙하대 통과 시 세계 정지 + 뗏목 급강하
+  if(s3.falling){
+    s3.fallT += dt;
+    r.y += (100+900*s3.fallT)*dt;        // 급가속 낙하
+    r.vx *= 0.98;
+    if(Math.random()<0.7) burst(r.x+(Math.random()*44-22), r.y-16, '#dff3ff', 2);   // 물보라
+    shake = Math.max(shake, 3.5);
+    if(s3.fallT>1.35){ state='interlude3'; interT=0; sfx('clear'); }   // → 컷신 → STAGE 4
+    return;
+  }
   s3.dist += s3.speed*dt;                // 항로 진행 (강물이 아래로 흐르는 효과)
   // ★ 치명타 버그 수정: S3에선 updatePlayer가 호출되지 않아 hurtInv(피격 무적)가
   //    영원히 감쇠하지 않았음 -> 모든 충돌 판정이 막혀 장애물이 안 걸렸던 원인
@@ -3054,6 +3143,12 @@ function updateS3(dt, s){
   const prog = s3.dist/s3.end;
   if(s3.phase===0 && prog>=0.20){ s3.phase=1; showToast('급류 구간! 바위와 고목에 조심하라', 3); sfx('door'); }
   if(s3.phase===1 && prog>=0.50){ s3.phase=2; showToast('원주민 카누가 나타난다!', 3); sfx('boss'); }
+  // ★ 폭포 낙하대 진입 판정 (항로 끝 = 폭포 가장자리)
+  if(!s3.falling && s3.dist >= s3.end - 24){
+    s3.falling = true; s3.fallT = 0;
+    sfx('boss'); shake = 10;
+    showToast('폭포!!', 1.6);
+  }
   // 앞뒤좌우 이동
   const dirx = (keys['ArrowRight']?1:0)-(keys['ArrowLeft']?1:0);
   const diry = (keys['ArrowDown']?1:0)-(keys['ArrowUp']?1:0);
@@ -3117,6 +3212,7 @@ function updateS3(dt, s){
     s3.canoeT = 3.4 + Math.random()*2.4;
   }
   // ---- 오브젝트 갱신 ----
+  for(const sw of s3.swirls){ sw.y += s3.speed*0.8*dt; sw.rot += sw.rotV*dt; if(sw.y>H+70) Object.assign(sw, s3NewSwirl(-70)); }
   for(const rp of s3.ripples){ rp.y += rp.v*dt; if(rp.y>H+30) Object.assign(rp, s3NewRipple(-20)); }
   for(const lg of s3.logs){
     lg.p -= 26*dt;                                     // 고목은 유속보다 빠르게 표류
@@ -3237,10 +3333,8 @@ function updateS3(dt, s){
       s3.items.splice(i,1);
     }
   }
-  // 항로 완주 → 클리어(엔딩 크레딧)
-  if(!s3.done && s3.dist>=s3.end){
-    s3.done = true; state='clear'; clearTimer=1.4; sfx('clear');
-  }
+  // 항로 완주(낙하대 통과)는 위 falling 시퀀스가 처리 → 클리어/크레딧 대신 컷신→STAGE 4
+  if(!s3.done && s3.dist>=s3.end) s3.done = true;
 }
 function drawS3(){
   const d = s3.dist, r = s3.raft;
@@ -3248,11 +3342,34 @@ function drawS3(){
   const g = ctx.createLinearGradient(0,0,0,H);
   g.addColorStop(0,'#175243'); g.addColorStop(0.5,'#1d5e4b'); g.addColorStop(1,'#154a3c');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-  // --- 깊은 물결 띠 (느린 시차로 흐름) ---
-  for(let k=0;k<6;k++){
-    const yy = ((d*0.35 + k*140) % (H+140)) - 70;
-    ctx.fillStyle='rgba(10,40,32,0.18)';
-    ctx.beginPath(); ctx.ellipse(W/2 + Math.sin(k*2.3)*260, yy, 300, 26, 0, 0, Math.PI*2); ctx.fill();
+  // --- 소용돌이 (리얼: 회전 나선팔 3개 + 그림자 나선 + 중심 눈 + 거품) ---
+  for(const sw of s3.swirls){
+    ctx.save(); ctx.translate(sw.x, sw.y); ctx.rotate(sw.rot);
+    ctx.lineCap='round';
+    for(let arm=0; arm<3; arm++){
+      const a0 = arm*2.094;
+      ctx.strokeStyle='rgba(215,245,235,0.30)'; ctx.lineWidth=2.2;   // 밝은 나선
+      ctx.beginPath();
+      for(let i2=0;i2<=13;i2++){
+        const th=a0+i2*0.44, rr=sw.r*(1-i2/14);
+        const px=Math.cos(th)*rr, py=Math.sin(th)*rr*0.78;
+        i2===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+      }
+      ctx.stroke();
+      ctx.strokeStyle='rgba(10,42,32,0.35)'; ctx.lineWidth=1.4;      // 어두운 그림자 나선
+      ctx.beginPath();
+      for(let i2=0;i2<=13;i2++){
+        const th=a0+0.5+i2*0.44, rr=sw.r*(1-i2/14);
+        const px=Math.cos(th)*rr, py=Math.sin(th)*rr*0.78;
+        i2===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+      }
+      ctx.stroke();
+    }
+    ctx.fillStyle='rgba(8,35,26,0.55)';                              // 소용돌이 눈
+    ctx.beginPath(); ctx.arc(0,0,sw.r*0.26,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.22)';                          // 거품 점
+    ctx.beginPath(); ctx.arc(Math.cos(sw.rot*2.3)*sw.r*0.75, Math.sin(sw.rot*2.3)*sw.r*0.75, 2.6, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
   }
   // --- 밀림 강변 (★ 강물과 동일 속도, 슬롯 앵커 = 깜빡임 없음, 4레이어 고퀄) ---
   const edgeAt = (yy)=> s3River(d + S3_K - yy);
@@ -3441,6 +3558,38 @@ function s3LogBody(lg){
       ctx.beginPath(); ctx.moveTo(it.x-11,sy+bob); ctx.lineTo(it.x,sy+12+bob); ctx.lineTo(it.x+11,sy+bob); ctx.closePath(); ctx.fill();
     }
   }
+  // --- 폭포 (마지막 구간: 항로 끝의 낙하대 + 안개 + 떨어지는 물줄기) ---
+  const wfY = S3_K - (s3.end - d);           // 낙하대 가장자리의 화면 y
+  if(wfY > -160 && wfY < H+160){
+    const e2 = s3River(s3.end), lx2 = e2.c-e2.hw, rx2 = e2.c+e2.hw;
+    // 낙하대 너머(상류)는 안개로 덮임 — 강이 거기서 끝난다
+    const mg = ctx.createLinearGradient(0, wfY-170, 0, wfY);
+    mg.addColorStop(0,'rgba(214,238,244,0.97)');
+    mg.addColorStop(1,'rgba(150,200,215,0.55)');
+    ctx.fillStyle=mg; ctx.fillRect(lx2, wfY-170, rx2-lx2, 170);
+    // 떨어지는 물줄기 (가장자리 아래로 애니메이션)
+    for(let i2=0;i2<24;i2++){
+      const sx = lx2 + 8 + (i2/23)*(rx2-lx2-16);
+      const sy = wfY + ((d*2.2 + i2*53) % 130);
+      ctx.strokeStyle='rgba(230,248,252,'+(0.18+bhash(i2*3.3)*0.22)+')';
+      ctx.lineWidth = 2+bhash(i2*5.1)*2.5;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx+1, sy+22+bhash(i2*7.7)*26); ctx.stroke();
+    }
+    // 가장자리 거품 라인 (물결치는 lip)
+    ctx.fillStyle='rgba(255,255,255,0.85)';
+    ctx.fillRect(lx2, wfY-4, rx2-lx2, 7);
+    for(let i2=0;i2<12;i2++){
+      const bx = lx2 + (i2/11)*(rx2-lx2);
+      ctx.beginPath(); ctx.arc(bx, wfY-5+Math.sin(d*0.08+i2)*3, 4.5, 0, Math.PI*2); ctx.fill();
+    }
+    // 안개 물구름
+    for(let i2=0;i2<6;i2++){
+      const mx2 = lx2 + (i2/5)*(rx2-lx2);
+      const my2 = wfY - 20 + Math.sin(performance.now()/700+i2*2)*6;
+      ctx.fillStyle='rgba(235,248,250,0.22)';
+      ctx.beginPath(); ctx.ellipse(mx2, my2, 26, 10, 0, 0, Math.PI*2); ctx.fill();
+    }
+  }
   // --- 카누 적 ---
   for(const e of s3.canoes){
     const bob = Math.sin(e.t*4)*2;
@@ -3469,7 +3618,10 @@ function s3LogBody(lg){
   // --- 뗏목 + 존스 (상단 시점: 머리+어깨만) ---
   const bob2 = Math.sin(performance.now()/300)*2;
   const tilt = Math.max(-0.09, Math.min(0.09, r.vx*0.02));
-  ctx.save(); ctx.translate(r.x, r.y+bob2); ctx.rotate(tilt);
+  const fl = s3.falling? Math.min(1, s3.fallT) : 0;      // ★ 추락 중: 회전+축소
+  ctx.save(); ctx.translate(r.x, r.y+bob2);
+  ctx.rotate(tilt + fl*2.4);
+  ctx.scale(1-fl*0.25, 1-fl*0.25);
   ctx.fillStyle='rgba(0,0,0,0.2)';
   ctx.beginPath(); ctx.ellipse(0,10,42,16,0,0,Math.PI*2); ctx.fill();
   for(let i=-1;i<=1;i++){
@@ -3549,6 +3701,7 @@ function init(){
     }
     if(usp.get('stage')==='2'){ startGame(2); }
     if(usp.get('stage')==='3'){ startGame(3); }
+    if(usp.get('stage')==='4'){ startStage4(); }
   }catch(e){}
   requestAnimationFrame(loop);
 }
