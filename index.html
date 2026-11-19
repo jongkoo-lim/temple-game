@@ -2756,25 +2756,46 @@ function drawChest(){
   }
 }
 
-// ★ [S4] 입장 연출: 엎드려 기어오는 존스 (crawl 구간만 전용 렌더, 이후 일반 렌더)
+// ★ [S4] 입장 연출: 엎드려 기어오는 존스 — 착장은 drawPlayer와 동일
+//   (갈색 자켓 #6b4a24/#7a5a2a + 허리 #4a3218 + 바지 #7a5a33 + 부츠 #3a2710
+//    + 페도라 #2e1f0e/#c9a15c/#3a2a14 + 수염 #8a6a3a + 피부 #d8b58a)
 function drawS4Crawl(pr){
   const x = pr.x-camX, y = pr.y;
   ctx.save(); ctx.translate(x,y);
-  const ph = performance.now()/90;
+  const crawl = Math.sin(performance.now()/110);
   ctx.fillStyle='rgba(0,0,0,0.2)';
-  ctx.beginPath(); ctx.ellipse(12, 20, 20, 4, 0, 0, Math.PI*2); ctx.fill();
-  ctx.fillStyle='#4a6a3a';                             // 몸 (엎드림)
-  ctx.beginPath(); ctx.ellipse(13,10,15,8,0,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='#e8b98a';                             // 머리 (앞쪽)
-  ctx.beginPath(); ctx.arc(28,7,7,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='#c9302c'; ctx.fillRect(23,-2,10,3);   // 모자
-  ctx.fillStyle='#20140a';
-  ctx.beginPath(); ctx.arc(31,7,1.2,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle='#e8b98a'; ctx.lineWidth=3.5; ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(20,13); ctx.lineTo(24+Math.sin(ph)*4,19); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(6,13); ctx.lineTo(2+Math.sin(ph+3.1)*4,19); ctx.stroke();
-  ctx.strokeStyle='#5a4632';
-  ctx.beginPath(); ctx.moveTo(0,12); ctx.lineTo(-9-Math.sin(ph)*4,19); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(14, 21, 21, 4, 0, 0, Math.PI*2); ctx.fill();
+  // 뒤다리 (바지 #7a5a33 + 부츠 #3a2710) - 번갈아 차밟기
+  ctx.strokeStyle='#7a5a33'; ctx.lineWidth=6; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(6,14); ctx.lineTo(-4+crawl*3, 18); ctx.stroke();
+  ctx.fillStyle='#3a2710';
+  ctx.fillRect(-9+crawl*3, 15, 7, 4);
+  // 몸통 (갈색 자켓, 엎드림) + 밝은 어깨선 + 허리/벨트
+  ctx.fillStyle='#6b4a24';
+  ctx.beginPath(); ctx.ellipse(14,12,14,8,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#7a5a2a';
+  ctx.beginPath(); ctx.ellipse(13,9,13,4,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#4a3218'; ctx.fillRect(2,14,24,4);
+  // 앞팔 (자켓 소매 + 손) - 기어가며 번갈아 뻗기
+  ctx.strokeStyle='#6b4a24'; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.moveTo(20,13); ctx.lineTo(30+crawl*4,17); ctx.stroke();
+  ctx.fillStyle='#d8b58a';
+  ctx.beginPath(); ctx.arc(31+crawl*4,18,2.8,0,Math.PI*2); ctx.fill();
+  // 머리 (피부 + 수염)
+  ctx.fillStyle='#d8b58a';
+  ctx.beginPath(); ctx.arc(30,7,6.5,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#8a6a3a'; ctx.fillRect(29,9,6,2);
+  // 페도라 (서 있을 때와 동일한 3색 구성, 옆모습)
+  ctx.fillStyle='#2e1f0e';
+  ctx.beginPath(); ctx.ellipse(31,3,9,3.2,-0.15,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#c9a15c'; ctx.fillRect(24,1.2,13,1.6);
+  ctx.fillStyle='#3a2a14';
+  ctx.beginPath(); ctx.ellipse(31,0.5,5.5,3.4,0,Math.PI,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#241708';
+  ctx.beginPath(); ctx.ellipse(31,1.2,5.5,2.2,0,0,Math.PI); ctx.fill();
+  // 두 번째 팔 (몸 아래에서 번갈아 뻗기)
+  ctx.strokeStyle='#6b4a24'; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.moveTo(16,16); ctx.lineTo(24-crawl*4,19); ctx.stroke();
   ctx.restore();
 }
 function drawPlayer(){
@@ -3033,7 +3054,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.65]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.66]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -3119,7 +3140,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.65 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.66 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 // ★ S3 폭포 낙하 → STAGE 4 컷신
 function drawInterlude3(){
