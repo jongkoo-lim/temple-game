@@ -105,6 +105,9 @@ let vineToastDone = false;         // [S2] 넝쿨 잡기 안내 1회 표시
   // ---------- [S4] 허물어진 유적 외부 ----------
   let bananas = [];                  // 원숭이가 던진 바나나 (fly: 포물선 / ground: 지면 잔류)
   let s4Intro = 0;                   // 입장 연출 타이머 (기어오기→일어나기→바지 털기)
+  let s4boss = null;                 // [S4] 대왕 원숭이 보스
+  let s4bossActive = false, s4bossDead = false;
+  let s4pillars = [];                // 스매쉬로 솟구치는 돌기둥
 let toast = null, toastT = 0;
 // 보물 상자 : 보스를 처치하면(1회부터) 쓰러진 자리에서 솟아오르는 특별 보상
 let chest = null;
@@ -342,30 +345,41 @@ function buildLevel(){
 
   if(stage===4){
     // ============================================================
-    // [S4] 허물어진 유적 외부 (횡스크롤) — 야생 원숭이 + 바나나 + 쓰러진 나무
-    //   캐노피에서 덩굴이 무수히 내려와 등반 가능('L'), 원숭이도 덩굴을 탐
+    // [S4] 허물어진 유적 외부 (횡스크롤, 장편) — 야생 원숭이 + 바나나
+    //   후반부: 대왕 원숭이 보스 아레나 (양손 스매쉬 = 돌기둥 솟구침)
     // ============================================================
-    ground(1,80,13);                       // 유적 바닥 (row13)
-    // 쓰러진 나무 (통나무 장애물 - 밟고 올라설 수 있음)
+    ground(1,160,13);                      // 유적 바닥 (row13, col1~160)
+    // -- 전반: 쓰러진 나무 / 넝쿨 바위 / 덩굴
     fill(15,18,11,12,'T');
-    fill(33,36,10,12,'T');
-    fill(60,63,11,12,'T');
-    // 넝쿨에 휘감긴 바위 / 허물어진 잔벽
-    fill(48,50,11,12,'R'); set(51,10,'R');
     fill(24,25,12,12,'R'); set(24,11,'R');
-    // 캐노피에서 내려온 등반용 덩굴 (사다리 취급 - 원숭이도 탐)
     for(let r=3;r<=10;r++) set(26,r,'L');
+    fill(33,36,10,12,'T');
     for(let r=3;r<=9;r++)  set(40,r,'L');
+    fill(48,50,11,12,'R'); set(51,10,'R');
     for(let r=3;r<=8;r++)  set(54,r,'L');
+    fill(60,63,11,12,'T');
+    // -- 중반: 이중 덩굴 + 큰 나무 + 바위 계단
+    fill(74,76,11,12,'R');
+    for(let r=3;r<=9;r++) set(70,r,'L');
+    for(let r=3;r<=9;r++) set(78,r,'L');
+    fill(84,88,10,12,'T');                 // 큰 쓰러진 나무 (3타일)
+    fill(96,97,12,12,'R'); fill(98,99,11,12,'R'); fill(100,101,10,12,'R');  // 바위 계단
+    for(let r=3;r<=7;r++)  set(98,r,'L');  // 계단 위 덩굴
+    fill(106,109,11,12,'T');
+    fill(122,124,11,12,'R');
+    for(let r=3;r<=9;r++) set(120,r,'L');
+    fill(130,133,10,12,'T');
+    // -- 후반: 대왕 원숭이 아레나 (col138~158)
+    set(140,12,'R'); set(156,12,'R');      // 아레나 입구 토템 바위
+    fill(159,160,4,17,'R');                // 아레나 끝 벽
     // 수집품
-    set(10,12,'g'); set(21,12,'g'); set(31,9,'g'); set(45,12,'g'); set(54,2,'g');
-    set(54,3,'w');                         // 채찍 강화 (덩굴 꼭대기 보상)
-    set(70,12,'h');                        // 회복 하트
-    // 출구: 무너진 성문 (오른쪽 끝, x>76.5타일 도달 시 클리어)
-    fill(79,80,5,17,'R');
+    set(10,12,'g'); set(21,12,'g'); set(31,9,'g'); set(45,12,'g'); set(54,2,'g'); set(54,3,'w');
+    set(70,2,'g'); set(86,9,'g'); set(100,9,'w'); set(107,10,'g'); set(126,12,'g');
+    set(90,12,'h'); set(135,12,'h');       // 회복 하트 (생명 1칸 시작 보완)
     checkpoint = { x:3*TILE, y:13*TILE-46 };
     enemies.length=0; blades.length=0; vines.length=0; blocks.length=0; platforms.length=0;
     darts.length=0; bananas.length=0; boss=null;
+    s4boss=null; s4bossActive=false; s4bossDead=false; s4pillars.length=0;
     level = g;                             // ★ 조기 return 시에도 grid 커밋 필수
     spawnEnemies();                        // ★ 원숭이 스폰 (조기 return은 buildLevel 끝의 공통 호출을 건너뜀)
     return;
@@ -625,8 +639,13 @@ function spawnEnemies(){
     spawnMonkey(22,13,false);    // 쓰러진 나무1(col15~18) 오른쪽 - 나무에 가려 플레이어를 못 보던 배치 수정
     spawnMonkey(44,13,false);
     spawnMonkey(66,13,false);
+    spawnMonkey(92,13,false);
+    spawnMonkey(112,13,false);
+    spawnMonkey(128,13,false);
     spawnMonkey(26,4,true,10);   // 덩굴 원숭이 (col26, rows 4~10)
     spawnMonkey(40,4,true,9);    // 덩굴 원숭이 (col40, rows 4~9)
+    spawnMonkey(98,4,true,7);    // 덩굴 원숭이 (바위 계단 위 col98, rows 4~7)
+    spawnMonkey(120,4,true,9);   // 덩굴 원숭이 (col120, rows 4~9)
     return;
   }
   if(stage===2){
@@ -740,6 +759,8 @@ function startStage4(){
   p.hp = 1;                       // ★ 요청 사항: 생명 1칸부터 시작
   p.weapon='whip'; p.pistolLv=1; p.ammo=0; p.maxAmmo=0;   // [S4] 채찍 장착
   s4Intro = 3.2;                  // ★ 기어서 입장 → 일어나기 → 바지 툭툭 연출
+  p._cp4a = false; p._cp4b = false;   // [S4] 중간 체크포인트 플래그
+  p._slip = 0;
   deadInitDone = false; chest = null;
   state='play'; paused=false;
   camX = Math.max(0, Math.min(p.x-W/2, COLS*TILE-W));
@@ -777,7 +798,17 @@ function update(dt){
       if(p.reloadT >= 5){ p.reloadT = 0; p.ammo++; }
     } else p.reloadT = 0;
     updateParticles(dt);
-    if(stage===4 && p.x > 76.5*TILE){ state='clear'; clearTimer=1.4; sfx('clear'); }   // [S4] 유적 출구
+    // ★ [S4] 대왕 원숭이 보스: 아레나 진입 시 낙하 등장, 이후 전투
+    if(stage===4){
+      if(!s4boss && !s4bossDead && p.x > 139.5*TILE){
+        s4boss = { x:150*TILE, y:-140, w:96, h:120, vx:0, vy:0, hp:14, maxHp:14,
+          hitCd:0, hitFx:0, state:'entry', timer:0, pa:0, f:-1, t:0, walk:0,
+          atkCd:1.0, deadT:0, deadFall:0, bn:0, chestSpawned:false };
+        s4bossActive = true;
+        showToast('대왕 원숭이 등장!!', 2.6); sfx('boss');
+      }
+      if(s4boss) updateS4Boss(dt, s);
+    }
     updateCam();
   }else if(state==='clear'){
     clearTimer -= dt; creditT += dt; updateParticles(dt);
@@ -997,6 +1028,12 @@ function updatePlayer(dt, s){
   // 추락
   if(p.y > H+40){ respawn(); sfx('boss'); }
 
+  // ★ [S4] 중간 체크포인트 (장편 구간: 중반 90 / 보스 아레나 입구 139)
+  if(stage===4){
+    if(!p._cp4a && p.x > 90*TILE){ p._cp4a=true; checkpoint={x:90*TILE,y:13*TILE-46}; sfx('gem'); showToast('체크포인트 저장!',1.2); }
+    if(!p._cp4b && p.x > 139*TILE){ p._cp4b=true; checkpoint={x:139*TILE,y:13*TILE-46}; sfx('gem'); showToast('체크포인트 저장!',1.2); }
+  }
+
   // 체크포인트 갱신 (첫 이동발판 횡단(구덩이1, col58~71)을 넘어가면 고지대에 저장)
   // 체크포인트 갱신 (스테이지별 지형에 맞는 안전 지점)
   if(stage===2){
@@ -1042,6 +1079,18 @@ function updatePlayer(dt, s){
       burst(boss.x+boss.w/2, boss.y+10, '#ffdf6b', 14);
       shake = 6;
       if(boss.hp<=0){ bossDead = true; bossDeadInit(); }
+    }
+    // ★ [S4] 대왕 원숭이 히트 (채찍)
+    if(s4boss && !s4bossDead && s4boss.hitCd<=0 && overlap(hb, s4boss)){
+      p.hitSet.add('s4boss');
+      s4boss.hp--; s4boss.hitCd = 0.5; s4boss.hitFx = 0.15;
+      sfx('hit'); hitstop = 0.05; shake = 5;
+      burst(s4boss.x+s4boss.w/2, s4boss.y+34, '#ffdf6b', 12);
+      if(s4boss.hp<=0){
+        s4bossDead = true; s4boss.state='dead'; s4boss.deadT=0; s4boss.deadFall=0; s4boss.vy=-4;
+        score += 500; addPopup(s4boss.x+s4boss.w/2, s4boss.y-10, '+500');
+        shake = 12; sfx('boss');
+      }
     }
     // ★ [S2] 넝쿨 장애물 절단 : 채찍을 대면 잘려서 길이 생김 (타일 hp 1)
     if(stage===2){
@@ -1497,6 +1546,21 @@ function updateBullets(dt, s){
         dead = true;
       }
     }
+    // ★ [S4] 대왕 원숭이 명중 (권총)
+    if(!dead && s4boss && !s4bossDead && s4boss.hitCd<=0){
+      const hb2 = { x:bl.x-3, y:bl.y-3, w:6, h:6 };
+      if(overlap(hb2, s4boss)){
+        s4boss.hp--; s4boss.hitCd = 0.5; s4boss.hitFx = 0.15;
+        sfx('hit'); hitstop = 0.04; shake = 4;
+        burst(bl.x, bl.y, '#a80f0a', 10);
+        if(s4boss.hp<=0){
+          s4bossDead = true; s4boss.state='dead'; s4boss.deadT=0; s4boss.deadFall=0; s4boss.vy=-4;
+          score += 500; addPopup(s4boss.x+s4boss.w/2, s4boss.y-10, '+500');
+          shake = 12; sfx('boss');
+        }
+        dead = true;
+      }
+    }
     if(dead) bullets.splice(i,1);
   }
 }
@@ -1775,6 +1839,9 @@ function render(){
 
   // 적
   for(const e of enemies) drawEnemy(e);
+  // ★ [S4] 스매쉬 돌기둥 + 대왕 원숭이
+  if(stage===4 && s4pillars.length) for(const pl of s4pillars) drawS4Pillar(pl);
+  if(stage===4 && s4boss && (s4bossActive||s4bossDead)) drawS4Boss(s4boss);
 
   // 벗겨진 모자
   for(const h of hats) drawHat(h);
@@ -1813,11 +1880,12 @@ function render(){
   else if(state==='interlude3') drawInterlude3(); // ★ S3 폭포→S4 컷신
   if(paused && state==='play') drawPause();
   if(state==='play' && bossActive && !bossDead) drawBossBar();
+  if(state==='play' && s4bossActive && !s4bossDead) drawS4BossBar();
   if(state==='play' && !bossActive && center(p).x > 158*TILE){
     drawMessage(stage===2 ? '정글의 족장이 다가오고 있다' : '보스가 다가오고 있다', 200);
   }
-  if(state==='play' && stage===4 && center(p).x > 71*TILE){
-    drawMessage('유적의 출구가 보인다!', 200);
+  if(state==='play' && stage===4 && !s4bossActive && center(p).x > 133*TILE){
+    drawMessage('거대한 기척이 느껴진다…', 200);
   }
 }
 
@@ -2996,6 +3064,165 @@ function drawBanana(b){
   ctx.fillStyle='#5a3a1a'; ctx.fillRect(-1.5,-9,3,3);
   ctx.restore(); ctx.globalAlpha=1;
 }
+// ============================================================
+//  [S4] 대왕 원숭이 보스 — 무기 없음, 양손 스매쉬로 바닥에서 돌기둥을 솟구쳐 공격
+// ============================================================
+function smashAttack(b){
+  const gy = 13*TILE, px = playerCenter().x;
+  for(const sx of [px, px-100, px+100]){                // 플레이어 위치 + 좌우 1곳씩
+    const x = Math.max(139*TILE+24, Math.min(157*TILE-24, sx));
+    s4pillars.push({ x, maxH: 80+Math.random()*50, h:0, phase:'rise', t:0, seed:Math.random()*9 });
+  }
+  shake = 10; sfx('boss');
+  burst(b.x+b.w/2, gy-6, '#8a7a5e', 14);
+  for(let i2=0;i2<10;i2++) burst(140*TILE+Math.random()*17*TILE, gy-4, '#b8a67e', 2);
+}
+function bossThrowBanana(b){
+  const pc = playerCenter(), mc = {x:b.x+b.w/2, y:b.y+34};
+  const dx = Math.max(-260, Math.min(260, pc.x - mc.x));
+  const T = 60, G = 0.16;
+  bananas.push({ x: mc.x, y: mc.y, vx: dx/T, vy: ((pc.y-6)-mc.y)/T - 0.5*G*T, g: G, st:'fly', t:0 });
+  sfx('shoot');
+}
+function updateS4Boss(dt, s){
+  if(!s4boss) return;
+  const b = s4boss, gy = 13*TILE - b.h;
+  b.t += dt;
+  if(b.hitCd>0) b.hitCd -= dt;
+  if(b.hitFx>0) b.hitFx -= dt;
+  if(s4bossDead){
+    b.deadT += dt;
+    b.deadFall = Math.min(1, b.deadFall + dt*0.9);
+    if(b.y < gy || b.vy !== 0){                          // 쓰러지며 바닥으로
+      b.vy += 0.5*s; b.y += b.vy*s;
+      if(b.y >= gy){ b.y = gy; b.vy = 0; shake = Math.max(shake,8); }
+    }
+    if(!b.chestSpawned && b.deadT>1.5){                  // 보물상자 등장 → 열면 클리어
+      b.chestSpawned = true;
+      chest = { x: Math.max(140*TILE, Math.min(b.x, 154*TILE)), y: 13*TILE-30, w:36, h:30, rise:0, risen:false, opened:false, openT:0 };
+      showToast('거대한 보물상자가 솟아올랐다!', 2.6); sfx('door'); shake = 8;
+    }
+    return;
+  }
+  const pc = playerCenter(), bc = {x:b.x+b.w/2};
+  const distX = Math.abs(pc.x-bc.x);
+  b.f = pc.x > bc.x ? 1 : -1;
+  if(b.state==='entry'){                                 // 하늘에서 낙하 등장
+    b.vy += 0.55*s; b.y += b.vy*s;
+    if(b.y >= gy){ b.y=gy; b.vy=0; b.state='roar'; b.timer=1.2; shake=12; sfx('boss');
+      burst(b.x+20, gy+b.h-6, '#8a7a5e', 14); burst(b.x+70, gy+b.h-6, '#8a7a5e', 14); }
+  } else if(b.state==='roar'){                           // 포효 (팔 위로)
+    b.timer -= dt; if(b.timer<=0){ b.state='approach'; b.atkCd=1.0; }
+  } else if(b.state==='approach'){
+    b.vx = (pc.x>bc.x?1:-1)*0.85; b.x += b.vx*s; b.walk += Math.abs(b.vx)*0.12;
+    b.atkCd -= dt;
+    if(distX < 175 && b.atkCd<=0){ b.state='telegraph'; b.timer=0.7; b.pa=0; }
+    else if(b.atkCd<=0 && distX>290){ b.state='barrage'; b.timer=0.15; b.bn=0; }
+    else if(b.atkCd<=0){ b.atkCd = 0.5; }
+  } else if(b.state==='telegraph'){                      // 양손 번쩍 예고
+    b.vx = 0; b.pa = Math.min(1, b.pa+dt/0.7); b.timer -= dt;
+    if(b.timer<=0){ b.state='smash'; b.pa=0; b.timer=0; smashAttack(b); }
+  } else if(b.state==='smash'){
+    b.pa = Math.min(1, b.pa+dt/0.28); b.timer += dt;
+    if(b.timer>0.55){ b.state='recover'; b.timer=1.4; }  // 빈틈 (공격 기회)
+  } else if(b.state==='barrage'){                        // 바나나 3연사
+    b.timer -= dt;
+    if(b.timer<=0 && b.bn<3){ bossThrowBanana(b); b.bn++; b.timer=0.26; }
+    if(b.bn>=3 && b.timer<=0){ b.state='recover'; b.timer=1.1; }
+  } else if(b.state==='recover'){
+    b.vx = 0; b.timer -= dt;
+    if(b.timer<=0){ b.state='approach'; b.atkCd = 0.6+Math.random()*0.8; }
+  }
+  b.x = Math.max(139*TILE+20, Math.min(157*TILE-b.w, b.x));   // 아레나 클램프
+  // 돌기둥: 솟구침 -> 유지 -> 철수, 플레이어 접촉 피해
+  for(let i=s4pillars.length-1;i>=0;i--){
+    const pl = s4pillars[i]; pl.t += dt;
+    if(pl.phase==='rise'){ pl.h = pl.maxH*Math.min(1, pl.t/0.22); if(pl.t>=0.22){ pl.phase='hold'; pl.t=0; } }
+    else if(pl.phase==='hold'){ if(pl.t>=0.9){ pl.phase='retract'; pl.t=0; } }
+    else { pl.h = pl.maxH*Math.max(0, 1-pl.t/0.3); if(pl.t>=0.3){ s4pillars.splice(i,1); continue; } }
+    if(pl.phase!=='retract' && p.hurtInv<=0 && overlap(p, {x:pl.x-17, y:13*TILE-pl.h, w:34, h:pl.h})){
+      damagePlayer(1, p.x < pl.x ? -1 : 1);
+    }
+  }
+  // 몸 접촉
+  if(p.hurtInv<=0 && overlap(p, b)) damagePlayer(1, p.x < b.x+b.w/2 ? -1 : 1);
+}
+function drawS4Pillar(pl){
+  const x = pl.x-camX, gy = 13*TILE;
+  if(pl.h<=2) return;
+  ctx.fillStyle='#7d7466';
+  ctx.beginPath();
+  ctx.moveTo(x-16, gy); ctx.lineTo(x-9, gy-pl.h*0.92); ctx.lineTo(x-2, gy-pl.h);
+  ctx.lineTo(x+8, gy-pl.h*0.9); ctx.lineTo(x+16, gy); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#948b7c';
+  ctx.beginPath(); ctx.moveTo(x-6, gy); ctx.lineTo(x-2, gy-pl.h*0.85); ctx.lineTo(x+3, gy-pl.h); ctx.lineTo(x+5, gy); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='#4a4238'; ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.moveTo(x-9, gy-pl.h*0.45); ctx.lineTo(x+4, gy-pl.h*0.5); ctx.stroke();
+}
+// ★ [S4] 대왕 원숭이 렌더 (entry 낙하/roar 포효/approach/telegraph/smash/recover/dead)
+function drawS4Boss(b){
+  const x = b.x-camX, y = b.y;
+  ctx.save(); ctx.translate(x,y);
+  if(b.f<0) ctx.scale(-1,1);
+  const flash = b.hitFx>0;
+  if(s4bossDead){
+    const fall = Math.min(1, b.deadFall||0);
+    ctx.translate(40, 112); ctx.rotate(-fall*1.25); ctx.translate(-40,-112);
+  }
+  const fur = flash? '#fffbe8' : '#5e3f1e';
+  const fur2 = flash? '#fffbe8' : '#6e4c26';
+  const skin = flash? '#fffbe8' : '#c9a86a';
+  const dark = '#20140a';
+  const walkA = (b.state==='approach') ? Math.sin(b.walk)*6 : 0;
+  const raise = b.state==='telegraph'? 62*b.pa : (b.state==='smash'? 62*(1-b.pa) : (b.state==='roar'? 40 : 0));
+  ctx.strokeStyle=fur; ctx.lineWidth=8; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(-30,80); ctx.quadraticCurveTo(-66,74,-58,40); ctx.stroke();  // 꼬리
+  ctx.lineWidth=11;                                                                        // 다리
+  ctx.beginPath(); ctx.moveTo(-16,92); ctx.lineTo(-22+walkA,116); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(22,92); ctx.lineTo(28-walkA,116); ctx.stroke();
+  ctx.fillStyle=fur;                                                                       // 몸통
+  ctx.beginPath(); ctx.ellipse(4,66,34,34,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle=skin; ctx.beginPath(); ctx.ellipse(10,72,18,22,0,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle=fur2; ctx.lineWidth=2;                                                   // 가슴 털
+  for(let i2=0;i2<4;i2++){ ctx.beginPath(); ctx.moveTo(2,58+i2*8); ctx.lineTo(14,60+i2*8); ctx.stroke(); }
+  ctx.fillStyle=fur; ctx.beginPath(); ctx.arc(10,24,22,0,Math.PI*2); ctx.fill();           // 머리
+  ctx.fillStyle=skin; ctx.beginPath(); ctx.ellipse(16,30,13,11,0,0,Math.PI*2); ctx.fill();
+  if(s4bossDead){
+    ctx.strokeStyle=dark; ctx.lineWidth=2;
+    for(const ex of [12,22]){ ctx.beginPath(); ctx.moveTo(ex-3,23); ctx.lineTo(ex+3,29); ctx.moveTo(ex+3,23); ctx.lineTo(ex-3,29); ctx.stroke(); }
+  } else {
+    ctx.fillStyle=dark;
+    ctx.beginPath(); ctx.arc(12,26,2.6,0,Math.PI*2); ctx.arc(22,26,2.6,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle=dark; ctx.lineWidth=2.5;                                               // 분노 눈썹
+    ctx.beginPath(); ctx.moveTo(7,20); ctx.lineTo(16,23); ctx.moveTo(27,20); ctx.lineTo(18,23); ctx.stroke();
+  }
+  ctx.fillStyle='#fff';                                                                    // 송곳니
+  ctx.beginPath(); ctx.moveTo(12,36); ctx.lineTo(14,42); ctx.lineTo(16,36); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(20,36); ctx.lineTo(22,42); ctx.lineTo(24,36); ctx.fill();
+  ctx.fillStyle='#2d6b30';                                                                 // 잎사귀 왕관
+  for(let i2=0;i2<5;i2++){
+    const aa = -0.5-i2*0.35;
+    ctx.beginPath(); ctx.ellipse(10+Math.cos(aa)*20, 8+Math.sin(aa)*14, 5, 3, aa, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.strokeStyle=fur; ctx.lineWidth=10;                                                   // 양팔 (스매쉬)
+  ctx.beginPath(); ctx.moveTo(24,52); ctx.lineTo(40, 52-raise*0.62); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-14,52); ctx.lineTo(-28, 52-raise*0.42); ctx.stroke();
+  ctx.fillStyle=skin;                                                                      // 주먹
+  ctx.beginPath(); ctx.arc(42, 52-raise*0.62, 9, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(-30, 52-raise*0.42, 9, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+function drawS4BossBar(){
+  const w = 320, x = W/2-w/2, y = 26;
+  ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(x-3,y-3,w+6,20);
+  ctx.fillStyle='#3a2020'; ctx.fillRect(x,y,w,14);
+  const hp = Math.max(0, s4boss.hp/s4boss.maxHp);
+  ctx.fillStyle='#d9482e'; ctx.fillRect(x+2,y+2,(w-4)*hp,10);
+  ctx.fillStyle='#ffb08a'; ctx.fillRect(x+2,y+2,(w-4)*hp,3);
+  ctx.fillStyle='#ffe29a'; ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('대왕 원숭이', W/2, y+30);
+  ctx.textAlign='left';
+}
 function drawHUD(){
   // 심장
   for(let i=0;i<p.maxHp;i++){
@@ -3054,7 +3281,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.66]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.67]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -3140,7 +3367,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.66 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.67 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 // ★ S3 폭포 낙하 → STAGE 4 컷신
 function drawInterlude3(){
