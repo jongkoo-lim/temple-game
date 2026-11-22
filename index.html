@@ -351,7 +351,7 @@ function buildLevel(){
     // [S4] 허물어진 유적 외부 (횡스크롤, 장편 v2.72: col1~171) — 야생 원숭이 + 바나나
     //   후반부: 대왕 원숭이 보스 아레나 (col172~192, 양손 스매쉬 = 돌기둥 솟구침)
     // ============================================================
-    ground(1,171,13);                      // 유적 바닥 (row13)
+    ground(1,194,13);                      // 유적 바닥 (row13, col1~194 - 보스 아레나 포함)
     // -- 전반: 쓰러진 나무 / 넝쿨 바위 / 덩굴
     fill(15,18,11,12,'T');
     fill(24,25,12,12,'R'); set(24,11,'R');
@@ -3366,7 +3366,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.72]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.73]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -3452,7 +3452,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.72 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.73 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 // ★ S3 폭포 낙하 → STAGE 4 컷신
 // ★ S2 족장 격파 → STAGE 3 컷신 (강가, 보름달)
