@@ -108,6 +108,7 @@ let vineToastDone = false;         // [S2] 넝쿨 잡기 안내 1회 표시
   let s4boss = null;                 // [S4] 대왕 원숭이 보스
   let s4bossActive = false, s4bossDead = false;
   let s4pillars = [];                // 스매쉬로 솟구치는 돌기둥
+  let s4warn = [];                   // 스매쉬 예고: 바닥 균열/광원 마커
 let toast = null, toastT = 0;
 // 보물 상자 : 보스를 처치하면(1회부터) 쓰러진 자리에서 솟아오르는 특별 보상
 let chest = null;
@@ -379,7 +380,7 @@ function buildLevel(){
     checkpoint = { x:3*TILE, y:13*TILE-46 };
     enemies.length=0; blades.length=0; vines.length=0; blocks.length=0; platforms.length=0;
     darts.length=0; bananas.length=0; boss=null;
-    s4boss=null; s4bossActive=false; s4bossDead=false; s4pillars.length=0;
+    s4boss=null; s4bossActive=false; s4bossDead=false; s4pillars.length=0; s4warn.length=0;
     level = g;                             // ★ 조기 return 시에도 grid 커밋 필수
     spawnEnemies();                        // ★ 원숭이 스폰 (조기 return은 buildLevel 끝의 공통 호출을 건너뜀)
     return;
@@ -1105,6 +1106,7 @@ function updatePlayer(dt, s){
       if(s4boss.hp<=0){
         s4bossDead = true; s4boss.state='dead'; s4boss.deadT=0; s4boss.deadFall=0; s4boss.vy=-4;
         score += 500; addPopup(s4boss.x+s4boss.w/2, s4boss.y-10, '+500');
+        s4warn.length = 0;
         shake = 12; sfx('boss');
       }
     }
@@ -1572,6 +1574,7 @@ function updateBullets(dt, s){
         if(s4boss.hp<=0){
           s4bossDead = true; s4boss.state='dead'; s4boss.deadT=0; s4boss.deadFall=0; s4boss.vy=-4;
           score += 500; addPopup(s4boss.x+s4boss.w/2, s4boss.y-10, '+500');
+          s4warn.length = 0;
           shake = 12; sfx('boss');
         }
         dead = true;
@@ -1857,6 +1860,8 @@ function render(){
 
   // 적
   for(const e of enemies) drawEnemy(e);
+  // ★ [S4] 스매쉬 예고 마커 (바닥 균열 + 주황 광원, 조준 0.7초 동안 강해짐)
+  if(stage===4 && s4warn.length) for(const w3 of s4warn) drawS4Warn(w3);
   // ★ [S4] 스매쉬 돌기둥 + 대왕 원숭이
   if(stage===4 && s4pillars.length) for(const pl of s4pillars) drawS4Pillar(pl);
   if(stage===4 && s4boss && (s4bossActive||s4bossDead)) drawS4Boss(s4boss);
@@ -3086,15 +3091,21 @@ function drawBanana(b){
 // ============================================================
 //  [S4] 대왕 원숭이 보스 — 무기 없음, 양손 스매쉬로 바닥에서 돌기둥을 솟구쳐 공격
 // ============================================================
+// 돌기둥 위치 계산 (조준 단계에서 미리 정해져 바닥에 예고 표시됨)
+function s4SmashSpots(){
+  const px = playerCenter().x;
+  return [px, px-100, px+100].map(x=>Math.max(139*TILE+24, Math.min(157*TILE-24, x)));
+}
 function smashAttack(b){
-  const gy = 13*TILE, px = playerCenter().x;
-  for(const sx of [px, px-100, px+100]){                // 플레이어 위치 + 좌우 1곳씩
-    const x = Math.max(139*TILE+24, Math.min(157*TILE-24, sx));
-    s4pillars.push({ x, maxH: 80+Math.random()*50, h:0, phase:'rise', t:0, seed:Math.random()*9 });
+  const gy = 13*TILE;
+  const spots = b._spots || s4SmashSpots();
+  s4warn.length = 0;                                   // ★ 예고 마커 -> 실제 기둥으로 전환
+  for(const sx of spots){
+    s4pillars.push({ x: sx, maxH: 80+Math.random()*50, h:0, phase:'rise', t:0, seed:Math.random()*9 });
   }
   shake = 10; sfx('boss');
   burst(b.x+b.w/2, gy-6, '#8a7a5e', 14);
-  for(let i2=0;i2<10;i2++) burst(140*TILE+Math.random()*17*TILE, gy-4, '#b8a67e', 2);
+  for(const sx of spots) burst(sx, gy-4, '#b8a67e', 6);
 }
 function bossThrowBanana(b){
   const pc = playerCenter(), mc = {x:b.x+b.w/2, y:b.y+34};
@@ -3135,7 +3146,12 @@ function updateS4Boss(dt, s){
   } else if(b.state==='approach'){
     b.vx = (pc.x>bc.x?1:-1)*0.85; b.x += b.vx*s; b.walk += Math.abs(b.vx)*0.12;
     b.atkCd -= dt;
-    if(distX < 175 && b.atkCd<=0){ b.state='telegraph'; b.timer=0.7; b.pa=0; }
+    if(distX < 175 && b.atkCd<=0){
+      b.state='telegraph'; b.timer=0.7; b.pa=0;
+      b._spots = s4SmashSpots();                        // ★ 조준 단계에 기둥 위치 확정
+      s4warn.length = 0;
+      for(const sx of b._spots) s4warn.push({ x:sx, t:0, dur:0.7 });   // 바닥 예고 마커
+    }
     else if(b.atkCd<=0 && distX>290){ b.state='barrage'; b.timer=0.15; b.bn=0; }
     else if(b.atkCd<=0){ b.atkCd = 0.5; }
   } else if(b.state==='telegraph'){                      // 양손 번쩍 예고
@@ -3153,6 +3169,12 @@ function updateS4Boss(dt, s){
     if(b.timer<=0){ b.state='approach'; b.atkCd = 0.6+Math.random()*0.8; }
   }
   b.x = Math.max(139*TILE+20, Math.min(157*TILE-b.w, b.x));   // 아레나 클램프
+  // 예고 마커 갱신 (조준 시간 동안 바닥에 표시)
+  for(let i=s4warn.length-1;i>=0;i--){
+    const w2 = s4warn[i]; w2.t += dt;
+    if(w2.t >= w2.dur) s4warn.splice(i,1);
+    if(Math.random()<0.25) burst(w2.x+(Math.random()*26-13), 13*TILE-2, '#b8a67e', 1);   // 균열에서 자갈
+  }
   // 돌기둥: 솟구침 -> 유지 -> 철수, 플레이어 접촉 피해
   for(let i=s4pillars.length-1;i>=0;i--){
     const pl = s4pillars[i]; pl.t += dt;
@@ -3165,6 +3187,23 @@ function updateS4Boss(dt, s){
   }
   // 몸 접촉
   if(p.hurtInv<=0 && overlap(p, b)) damagePlayer(1, p.x < b.x+b.w/2 ? -1 : 1);
+}
+// ★ [S4] 스매쉬 예고 마커: 바닥 균열 + 솟구칠 자리 광원 (0.7초 강해짐)
+function drawS4Warn(w3){
+  const x = w3.x-camX, gy = 13*TILE;
+  if(x<-40 || x>W+40) return;
+  const k = Math.min(1, w3.t/w3.dur);
+  const pulse = 0.5+0.5*Math.sin(performance.now()/55);
+  ctx.save();
+  ctx.strokeStyle='rgba(40,30,20,'+(0.35+0.5*k)+')'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(x-16,gy); ctx.lineTo(x-8,gy-5); ctx.lineTo(x-1,gy-2);
+  ctx.lineTo(x+7,gy-6); ctx.lineTo(x+15,gy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x-6,gy); ctx.lineTo(x-2,gy-3); ctx.lineTo(x+3,gy); ctx.stroke();
+  ctx.fillStyle='rgba(255,140,50,'+(0.16+0.34*k*(0.6+0.4*pulse))+')';
+  ctx.beginPath(); ctx.ellipse(x, gy-3, 18, 6, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle='rgba(255,220,120,'+(0.3*k*(0.5+0.5*pulse))+')';
+  ctx.beginPath(); ctx.ellipse(x, gy-3, 10, 4, 0, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
 }
 function drawS4Pillar(pl){
   const x = pl.x-camX, gy = 13*TILE;
@@ -3300,7 +3339,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.70]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.71]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -3386,7 +3425,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.70 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.71 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 // ★ S3 폭포 낙하 → STAGE 4 컷신
 // ★ S2 족장 격파 → STAGE 3 컷신 (강가, 보름달)
