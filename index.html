@@ -3300,7 +3300,7 @@ function drawHUD(){
   }
   ctx.fillStyle='#caa86a';
   ctx.font='12px sans-serif';
-  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.69]', W/2, 22);
+  ctx.fillText((stage===2?'Stage 2 — 정글의 원주민':'Stage 1 — 잃어버린 사원')+'  [BUILD v2.70]', W/2, 22);
   ctx.textAlign='right';
   const t = ((performance.now()-startTime)/1000);
   ctx.fillStyle='#caa86a';
@@ -3386,7 +3386,7 @@ function drawMenu(){
   ctx.fillText('▶  ENTER 를 눌러 시작', W/2, H-70);
   // 빌드 확인용 : 이 텍스트가 안 보이면 옛 버전 파일임
   ctx.fillStyle='#ff5050'; ctx.font='bold 17px sans-serif';
-  ctx.fillText('BUILD v2.69 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
+  ctx.fillText('BUILD v2.70 (확인: 여기에 빨간 글씨가 보이면 새 버전)', W/2, H-30);
 }
 // ★ S3 폭포 낙하 → STAGE 4 컷신
 // ★ S2 족장 격파 → STAGE 3 컷신 (강가, 보름달)
@@ -4289,7 +4289,7 @@ function loop(now){
   if(paused && state==='play'){ render(); return; }   // 일시정지: 갱신 생략, 화면 유지
   if(hitstop>0){ hitstop -= dt; render(); return; }   // 히트스톱: 몇 프레임 정지 (렌더는 유지)
   if(state==='play') update(dt);
-  else if(state==='clear' || state==='gameover' || state==='interlude') update(dt);
+  else if(state==='clear' || state==='gameover' || state==='interlude' || state==='interlude2' || state==='interlude3') update(dt);
   render();
 }
 // 초기화
